@@ -16,6 +16,10 @@
       "destination": "/api/export-registry.ts"
     },
     {
+      "source": "/api/export-report",
+      "destination": "/api/export-report.ts"
+    },
+    {
       "source": "/api/scan-logs/clear",
       "destination": "/api/clear-scan-logs.ts"
     },
