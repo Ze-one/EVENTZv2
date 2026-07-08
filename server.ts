@@ -312,6 +312,11 @@ async function startServer() {
   // Email Pass: Send single pass to participant email
   // Helper function to send email (real SMTP or robust simulated delivery fallback)
   async function sendEventPassEmail(participant: any, event: any, logId: string, customMessage?: string) {
+    console.log(`[SEND-EMAIL] Starting send for participant ${participant.id} (${participant.email})`);
+    console.log(`[SEND-EMAIL] SendGrid key available: ${!!process.env.SENDGRID_API_KEY}`);
+    console.log(`[SEND-EMAIL] Mailjet key available: ${!!process.env.MAILJET_API_KEY}`);
+    console.log(`[SEND-EMAIL] SMTP configured: ${!!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)}`);
+
     const isSmtpConfigured = !!(
       process.env.SMTP_HOST &&
       process.env.SMTP_USER &&
@@ -532,8 +537,11 @@ async function startServer() {
 
     if (useSendGrid) {
       try {
+        console.log(`[SEND-EMAIL] Using SendGrid for ${participant.email}`);
         sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
         const fromAddress = process.env.SMTP_FROM || process.env.MAILJET_SENDER || process.env.SENDGRID_FROM || 'abdel.samad@etsntech.org';
+        console.log(`[SEND-EMAIL] From address: ${fromAddress}`);
+        
         const sendResult = await sgMail.send({
           to: participant.email,
           from: fromAddress,
@@ -550,14 +558,15 @@ async function startServer() {
           ]
         });
 
-        console.log('SendGrid send result:', sendResult[0]);
+        console.log(`[SEND-EMAIL] SendGrid success - messageId: ${sendResult[0]?.id}, statusCode: ${sendResult[0]?.statusCode}`);
         await db.updateEmailLogStatus(logId, 'Delivered');
       } catch (err: any) {
-        console.error('SendGrid sending failed:', err);
+        console.error(`[SEND-EMAIL] SendGrid error: ${err.message}`, err.response?.body || err);
         await db.updateEmailLogStatus(logId, 'Failed', err.message || 'SendGrid delivery failed');
       }
     } else if (isSmtpConfigured || useMailjet) {
       try {
+        console.log(`[SEND-EMAIL] Using ${useMailjet ? 'Mailjet' : 'SMTP'} for ${participant.email}`);
         const transporterOptions: any = {};
 
         if (useMailjet) {
@@ -600,7 +609,7 @@ async function startServer() {
         });
 
         // Log transporter response for diagnostics (messageId, accepted, rejected)
-        console.log('SMTP send result:', {
+        console.log(`[SEND-EMAIL] SMTP send result:`, {
           messageId: sendResult?.messageId,
           accepted: sendResult?.accepted,
           rejected: sendResult?.rejected,
@@ -609,10 +618,11 @@ async function startServer() {
 
         await db.updateEmailLogStatus(logId, 'Delivered');
       } catch (err: any) {
-        console.error('SMTP/Mailjet sending failed:', err);
+        console.error(`[SEND-EMAIL] SMTP/Mailjet error: ${err.message}`, err);
         await db.updateEmailLogStatus(logId, 'Failed', err.message || 'SMTP delivery failed');
       }
     } else {
+      console.log(`[SEND-EMAIL] No email provider configured, using fallback simulation for ${participant.email}`);
       // Simulate network delivery
       setTimeout(async () => {
         const isInvalid = participant.email.toLowerCase().includes('invalid') || participant.email.toLowerCase().includes('bounce') || participant.email.toLowerCase().includes('fail');
