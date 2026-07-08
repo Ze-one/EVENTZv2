@@ -156,8 +156,13 @@ export async function sendParticipantPassEmail(req: any, participant: any, event
         }]
       } as any);
 
+      const sendGridResult = result as any;
       await db.updateEmailLogStatus(logId, 'Delivered');
-      return { provider: 'sendgrid', statusCode: result?.statusCode || 202, messageId: result?.headers?.['x-message-id'] || result?.id || null };
+      return {
+        provider: 'sendgrid',
+        statusCode: sendGridResult?.statusCode || 202,
+        messageId: sendGridResult?.headers?.['x-message-id'] || sendGridResult?.id || null
+      };
     }
 
     if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
