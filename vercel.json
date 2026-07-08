@@ -8,6 +8,10 @@
       "destination": "/api/account-management.ts"
     },
     {
+      "source": "/api/attendee-requests",
+      "destination": "/api/attendee-requests.ts"
+    },
+    {
       "source": "/api/scan-logs/clear",
       "destination": "/api/clear-scan-logs.ts"
     },
