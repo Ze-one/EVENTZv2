@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { User, EventDetails, Participant, ScanLog, UserRole, PassStatus, ScanResult } from './types.js';
+import { User, EventDetails, Participant, ScanLog, UserRole, PassStatus, ScanResult, EmailLog } from './types.js';
 import Logo from './components/Logo.tsx';
 import DashboardView from './components/DashboardView.tsx';
 import EventSettingsView from './components/EventSettingsView.tsx';
@@ -22,6 +22,7 @@ export default function App() {
   const [eventDetails, setEventDetails] = useState<EventDetails | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [scanLogs, setScanLogs] = useState<ScanLog[]>([]);
+  const [emailLogs, setEmailLogs] = useState<EmailLog[]>([]);
   
   // Navigation
   const [currentPage, setCurrentPage] = useState<string>('dashboard');
@@ -77,6 +78,13 @@ export default function App() {
       if (resLogs.ok) {
         const logsList = await resLogs.json();
         setScanLogs(logsList);
+      }
+
+      // 4. Email logs
+      const resEmailLogs = await fetch('/api/email-logs');
+      if (resEmailLogs.ok) {
+        const emailLogsList = await resEmailLogs.json();
+        setEmailLogs(emailLogsList);
       }
     } catch (err) {
       console.error('Error fetching backend core state:', err);
@@ -279,9 +287,13 @@ export default function App() {
       const res = await fetch(`/api/participants/${id}`, { method: 'DELETE' });
       if (res.ok) {
         await fetchAllData();
+        showToast('Participant deleted successfully.', 'success');
+      } else {
+        showToast('Failed to delete participant.', 'error');
       }
     } catch (err) {
       console.error(err);
+      showToast('Connection error. Failed to delete.', 'error');
     }
   };
 
@@ -295,9 +307,13 @@ export default function App() {
       });
       if (res.ok) {
         await fetchAllData();
+        showToast(`Successfully deleted ${ids.length} participant(s).`, 'success');
+      } else {
+        showToast('Failed to delete selected participants.', 'error');
       }
     } catch (err) {
       console.error(err);
+      showToast('Connection error. Failed bulk delete.', 'error');
     }
   };
 
@@ -322,6 +338,59 @@ export default function App() {
       }
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  // API: Share pass to participant email
+  const handleSendEmail = async (id: string, email?: string, customMessage?: string) => {
+    try {
+      const res = await fetch(`/api/participants/${id}/email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, customMessage })
+      });
+      if (res.ok) {
+        showToast('Pass dispatch email initiated!', 'success');
+        await fetchAllData();
+      } else {
+        const data = await res.json();
+        showToast(data.error || 'Failed to dispatch pass email.', 'error');
+      }
+    } catch (err) {
+      showToast('Server connection broken.', 'error');
+    }
+  };
+
+  // API: Bulk share passes to participant emails
+  const handleSendEmailsBulk = async (ids: string[], customMessage?: string) => {
+    try {
+      const res = await fetch('/api/participants/bulk-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids, customMessage })
+      });
+      if (res.ok) {
+        showToast(`Pass dispatch initiated for ${ids.length} recipients!`, 'success');
+        await fetchAllData();
+      } else {
+        const data = await res.json();
+        showToast(data.error || 'Failed bulk pass email dispatch.', 'error');
+      }
+    } catch (err) {
+      showToast('Server connection broken.', 'error');
+    }
+  };
+
+  // API: Wipe email dispatch logs
+  const handleClearEmailLogs = async () => {
+    try {
+      const res = await fetch('/api/email-logs/clear', { method: 'POST' });
+      if (res.ok) {
+        await fetchAllData();
+        showToast('Email dispatch history cleared.', 'success');
+      }
+    } catch (err) {
+      showToast('Failed to clear dispatch history.', 'error');
     }
   };
 
@@ -959,6 +1028,8 @@ export default function App() {
             onDeleteParticipants={handleDeleteParticipants}
             onResetCheckIn={handleResetCheckIn}
             onAddParticipant={handleAddParticipant}
+            onSendEmail={handleSendEmail}
+            onSendEmailsBulk={handleSendEmailsBulk}
           />
         )}
 
@@ -967,7 +1038,9 @@ export default function App() {
           <ReportsView 
             scanLogs={scanLogs} 
             participants={participants} 
+            emailLogs={emailLogs}
             onClearLogs={handleClearLogs}
+            onClearEmailLogs={handleClearEmailLogs}
             onRefresh={fetchAllData}
           />
         )}

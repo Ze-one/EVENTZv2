@@ -5,7 +5,7 @@
 
 import React, { useState } from 'react';
 import { Participant, EventDetails, PassStatus } from '../types.js';
-import { Search, Filter, MoreVertical, ShieldAlert, CheckCircle2, UserCheck, Trash2, ArrowUpRight, Award, User, RotateCcw, X } from 'lucide-react';
+import { Search, Filter, MoreVertical, ShieldAlert, CheckCircle2, UserCheck, Trash2, ArrowUpRight, Award, User, RotateCcw, X, Mail, Send } from 'lucide-react';
 import EventPassCard from './EventPassCard.tsx';
 
 interface ParticipantsListViewProps {
@@ -16,6 +16,8 @@ interface ParticipantsListViewProps {
   onDeleteParticipants?: (ids: string[]) => Promise<void>;
   onResetCheckIn: (id: string) => Promise<void>;
   onAddParticipant: (p: { fullName: string; phone: string; email: string; organization: string; category: string }) => Promise<void>;
+  onSendEmail?: (id: string, email?: string, customMessage?: string) => Promise<void>;
+  onSendEmailsBulk?: (ids: string[], customMessage?: string) => Promise<void>;
 }
 
 export default function ParticipantsListView({
@@ -25,12 +27,18 @@ export default function ParticipantsListView({
   onDeleteParticipant,
   onDeleteParticipants,
   onResetCheckIn,
-  onAddParticipant
+  onAddParticipant,
+  onSendEmail,
+  onSendEmailsBulk
 }: ParticipantsListViewProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | PassStatus>('All');
   const [categoryFilter, setCategoryFilter] = useState('All');
   const [selectedParticipantIds, setSelectedParticipantIds] = useState<string[]>([]);
+  
+  // Email sharing proposal confirmation modal states
+  const [emailConfirmParticipant, setEmailConfirmParticipant] = useState<Participant | null>(null);
+  const [showBulkEmailConfirm, setShowBulkEmailConfirm] = useState(false);
   
   // New single participant form modal
   const [showAddModal, setShowAddModal] = useState(false);
@@ -54,6 +62,27 @@ export default function ParticipantsListView({
     fullName?: string;
     ids?: string[];
   } | null>(null);
+
+  // Local state for single email modal editing & dispatching
+  const [customEmail, setCustomEmail] = useState('');
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [customMessage, setCustomMessage] = useState('');
+  const [bulkCustomMessage, setBulkCustomMessage] = useState('');
+
+  // Sync customEmail and customMessage state when modal participant changes
+  React.useEffect(() => {
+    if (emailConfirmParticipant) {
+      setCustomEmail(emailConfirmParticipant.email || '');
+      setCustomMessage('');
+    }
+  }, [emailConfirmParticipant]);
+
+  // Sync bulkCustomMessage when bulk modal state changes
+  React.useEffect(() => {
+    if (showBulkEmailConfirm) {
+      setBulkCustomMessage('');
+    }
+  }, [showBulkEmailConfirm]);
 
   // Unique categories list
   const categories = ['All', ...Array.from(new Set(participants.map(p => p.category).filter(Boolean)))];
@@ -176,6 +205,15 @@ export default function ParticipantsListView({
             >
               <Trash2 size={13} />
               Delete Selected ({selectedParticipantIds.length})
+            </button>
+          )}
+          {selectedParticipantIds.length > 0 && onSendEmailsBulk && (
+            <button
+              onClick={() => setShowBulkEmailConfirm(true)}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow flex items-center gap-1.5"
+            >
+              <Mail size={13} />
+              Email Passes ({selectedParticipantIds.length})
             </button>
           )}
           <button
@@ -366,6 +404,16 @@ export default function ParticipantsListView({
                             View Card
                           </button>
 
+                          {onSendEmail && (
+                            <button
+                              onClick={() => setEmailConfirmParticipant(p)}
+                              className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-all"
+                              title="Propose to Share Pass via Email"
+                            >
+                              <Mail size={14} />
+                            </button>
+                          )}
+
                           {p.status === PassStatus.USED ? (
                             <button
                               onClick={() => onResetCheckIn(p.id)}
@@ -423,8 +471,21 @@ export default function ParticipantsListView({
               <h3 className="font-extrabold text-slate-800 text-sm">Attendee Pass Preview</h3>
               <p className="text-[10px] text-slate-400">Generate, test, print, or download individual participant credential</p>
             </div>
-            <div className="border-t border-slate-50 pt-3">
+            <div className="border-t border-slate-50 pt-3 space-y-4">
               <EventPassCard participant={selectedParticipant} event={event} />
+              
+              <button
+                type="button"
+                onClick={() => {
+                  const part = selectedParticipant;
+                  setSelectedParticipant(null);
+                  setEmailConfirmParticipant(part);
+                }}
+                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition-all shadow flex items-center justify-center gap-1.5"
+              >
+                <Mail size={14} />
+                Share Pass via Email
+              </button>
             </div>
           </div>
         </div>
@@ -554,6 +615,7 @@ export default function ParticipantsListView({
                 onClick={async () => {
                   if (deleteConfirmInfo.type === 'single' && deleteConfirmInfo.participantId) {
                     await onDeleteParticipant(deleteConfirmInfo.participantId);
+                    setSelectedParticipantIds(prev => prev.filter(id => id !== deleteConfirmInfo.participantId));
                   } else if (deleteConfirmInfo.type === 'bulk' && deleteConfirmInfo.ids) {
                     if (onDeleteParticipants) {
                       await onDeleteParticipants(deleteConfirmInfo.ids);
@@ -569,6 +631,213 @@ export default function ParticipantsListView({
                 className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs transition-all shadow"
               >
                 Delete Now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* INDIVIDUAL SHARE PASS VIA EMAIL PROPOSAL MODAL */}
+      {emailConfirmParticipant && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-[100] animate-fade-in">
+          <div className="bg-white rounded-3xl p-6 shadow-2xl relative w-full max-w-md border border-slate-100 text-left space-y-4 animate-scale-in">
+            <button
+              onClick={() => setEmailConfirmParticipant(null)}
+              className="absolute top-4 right-4 p-1.5 bg-slate-50 border border-slate-100 text-slate-400 hover:text-slate-700 rounded-lg transition-all"
+            >
+              <X size={15} />
+            </button>
+            <div className="flex items-center gap-3 text-indigo-600">
+              <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center border border-indigo-100">
+                <Mail size={18} />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-slate-800 text-base">Propose Pass Delivery</h3>
+                <p className="text-[10px] text-slate-400">Share digital entry credential directly with attendee</p>
+              </div>
+            </div>
+
+            {/* Prompt for missing email if noticed */}
+            {!emailConfirmParticipant.email && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3.5 rounded-2xl text-[11px] font-medium flex items-start gap-2.5">
+                <ShieldAlert size={15} className="text-amber-600 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <span className="font-bold block">No Email Address Configured</span>
+                  <span>This attendee has no email registered. Enter an email address below to update their record and dispatch the pass.</span>
+                </div>
+              </div>
+            )}
+
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <span className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider">Recipient Name</span>
+                  <span className="font-extrabold text-slate-800">{emailConfirmParticipant.fullName}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider">Pass ID</span>
+                  <span className="font-mono font-bold text-indigo-600">{emailConfirmParticipant.passId}</span>
+                </div>
+              </div>
+              
+              <div className="border-t border-slate-200/60 pt-2.5 space-y-1.5">
+                <label className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider">Email Address</label>
+                <input
+                  type="email"
+                  value={customEmail}
+                  onChange={(e) => setCustomEmail(e.target.value)}
+                  placeholder="Enter recipient email address..."
+                  className="w-full p-2.5 bg-white border border-slate-200 rounded-xl focus:ring-1 focus:ring-indigo-600 focus:outline-none transition-all font-mono text-xs font-bold text-slate-700"
+                />
+                {!customEmail.trim() && (
+                  <p className="text-[10px] text-rose-500 font-bold mt-1">⚠️ A valid email is required to share this pass.</p>
+                )}
+              </div>
+
+              <div className="border-t border-slate-200/60 pt-2.5 space-y-1.5">
+                <label className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider">Custom Message (Optional)</label>
+                <textarea
+                  value={customMessage}
+                  onChange={(e) => setCustomMessage(e.target.value)}
+                  placeholder="Add a personal greeting or special instructions for this attendee..."
+                  rows={3}
+                  className="w-full p-2.5 bg-white border border-slate-200 rounded-xl focus:ring-1 focus:ring-indigo-600 focus:outline-none transition-all text-xs text-slate-700 resize-none"
+                />
+              </div>
+
+              <div className="border-t border-slate-200/60 pt-2.5">
+                <span className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider">Email Subject Line</span>
+                <span className="text-slate-600 font-medium">Your Entrance Pass: {event.eventName}</span>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              This initiates secure delivery of the high-resolution QR pass. Delivery status logs will be recorded on the system audits tab.
+            </p>
+
+            <div className="flex flex-col sm:flex-row gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setEmailConfirmParticipant(null)}
+                className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-all border border-slate-200 text-center"
+              >
+                Cancel
+              </button>
+
+              {customEmail.trim() && (
+                <a
+                  href={`mailto:${customEmail.trim()}?subject=${encodeURIComponent(`Your Entrance Pass: ${event.eventName}`)}&body=${encodeURIComponent(
+                    `Hello ${emailConfirmParticipant.fullName},\n\n${customMessage ? customMessage + '\n\n' : ''}Your entrance pass for ${event.eventName} has been generated.\n\nPass ID: ${emailConfirmParticipant.passId}\n\nPresent this Pass ID or your ticket's embedded QR code at the security checkpoint.\n\nBest regards,\n${event.organizerName}`
+                  )}`}
+                  onClick={() => setEmailConfirmParticipant(null)}
+                  className="py-2.5 px-3 border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-xs transition-all flex items-center justify-center gap-1.5 text-center flex-1"
+                  title="Open local device email application"
+                >
+                  <Mail size={13} />
+                  Device Mail App
+                </a>
+              )}
+
+              <button
+                type="button"
+                disabled={!customEmail.trim() || sendingEmail}
+                onClick={async () => {
+                  if (onSendEmail && emailConfirmParticipant) {
+                    try {
+                      setSendingEmail(true);
+                      // Update the email address in database if changed
+                      if (customEmail.trim() !== (emailConfirmParticipant.email || '')) {
+                        await onUpdateParticipant(emailConfirmParticipant.id, { email: customEmail.trim() });
+                      }
+                      await onSendEmail(emailConfirmParticipant.id, customEmail.trim(), customMessage);
+                    } catch (err) {
+                      console.error(err);
+                    } finally {
+                      setSendingEmail(false);
+                      setEmailConfirmParticipant(null);
+                    }
+                  }
+                }}
+                className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition-all shadow flex items-center justify-center gap-1.5 text-center"
+              >
+                <Send size={13} />
+                {sendingEmail ? 'Sending...' : 'Send Pass Now'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* BULK SHARE PASSES VIA EMAIL PROPOSAL MODAL */}
+      {showBulkEmailConfirm && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-[100] animate-fade-in">
+          <div className="bg-white rounded-3xl p-6 shadow-2xl relative w-full max-w-md border border-slate-100 text-left space-y-4">
+            <button
+              onClick={() => setShowBulkEmailConfirm(false)}
+              className="absolute top-4 right-4 p-1.5 bg-slate-50 border border-slate-100 text-slate-400 hover:text-slate-700 rounded-lg transition-all"
+            >
+              <X size={15} />
+            </button>
+            <div className="flex items-center gap-3 text-emerald-600">
+              <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center border border-emerald-100">
+                <Mail size={18} />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-slate-800 text-base">Propose Bulk Delivery</h3>
+                <p className="text-[10px] text-slate-400">Share passes with multiple selected registrants</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-3 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Selected Recipients Count:</span>
+                <span className="font-bold text-slate-800">{selectedParticipantIds.length} attendees</span>
+              </div>
+              <div className="flex justify-between border-t border-slate-200/60 pt-2">
+                <span className="text-slate-500">Event Pass template:</span>
+                <span className="font-bold text-emerald-600">{event.passTitle}</span>
+              </div>
+              <div className="flex justify-between border-t border-slate-200/60 pt-2">
+                <span className="text-slate-500">Delivery subject:</span>
+                <span className="text-slate-600 font-medium truncate max-w-[200px]">Digital Entry Pass: {event.eventName}</span>
+              </div>
+
+              <div className="border-t border-slate-200/60 pt-2.5 space-y-1.5">
+                <label className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider">Custom Message (Optional)</label>
+                <textarea
+                  value={bulkCustomMessage}
+                  onChange={(e) => setBulkCustomMessage(e.target.value)}
+                  placeholder="Add a personal greeting or special instructions for all selected attendees..."
+                  rows={3}
+                  className="w-full p-2.5 bg-white border border-slate-200 rounded-xl focus:ring-1 focus:ring-emerald-600 focus:outline-none transition-all text-xs text-slate-700 resize-none"
+                />
+              </div>
+            </div>
+
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              This initiates concurrent async dispatch queue loops. Passes will be emailed individually to attendees who have emails configured. Progress can be monitored in real-time in the Auditing reports tab.
+            </p>
+
+            <div className="flex gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowBulkEmailConfirm(false)}
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-all border border-slate-200"
+              >
+                Cancel Proposal
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (onSendEmailsBulk) {
+                    await onSendEmailsBulk(selectedParticipantIds, bulkCustomMessage);
+                  }
+                  setShowBulkEmailConfirm(false);
+                }}
+                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-all shadow flex items-center justify-center gap-1.5"
+              >
+                <Send size={13} />
+                Send All Selected ({selectedParticipantIds.length})
               </button>
             </div>
           </div>

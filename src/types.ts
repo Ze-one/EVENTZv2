@@ -81,3 +81,15 @@ export interface ScanLog {
   createdAt: string;
   participantName?: string;
 }
+
+export interface EmailLog {
+  id: string;
+  eventId: string;
+  participantId: string;
+  participantName: string;
+  recipientEmail: string;
+  subject: string;
+  status: 'Queued' | 'Sending' | 'Delivered' | 'Failed';
+  sentAt: string;
+  errorMessage?: string;
+}

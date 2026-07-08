@@ -6,7 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { User, EventDetails, Participant, ScanLog, UserRole, PassStatus } from '../types.js';
+import { User, EventDetails, Participant, ScanLog, UserRole, PassStatus, EmailLog } from '../types.js';
 
 // Simple in-memory storage backed by a JSON file
 const DB_FILE = path.join(process.cwd(), 'db.json');
@@ -16,6 +16,7 @@ interface DatabaseSchema {
   events: EventDetails[];
   participants: Participant[];
   scanLogs: ScanLog[];
+  emailLogs?: EmailLog[];
 }
 
 function hashPassword(password: string): string {
@@ -109,7 +110,8 @@ const defaultDb: DatabaseSchema = {
       updatedAt: new Date().toISOString(),
     }
   ],
-  scanLogs: []
+  scanLogs: [],
+  emailLogs: []
 };
 
 class DB {
@@ -129,6 +131,7 @@ class DB {
         if (!this.data.events) this.data.events = defaultDb.events;
         if (!this.data.participants) this.data.participants = defaultDb.participants;
         if (!this.data.scanLogs) this.data.scanLogs = defaultDb.scanLogs;
+        if (!this.data.emailLogs) this.data.emailLogs = [];
       } else {
         this.save();
       }
@@ -333,6 +336,42 @@ class DB {
 
   clearScanLogs(): void {
     this.data.scanLogs = [];
+    this.save();
+  }
+
+  // --- Email Logs Methods ---
+  getEmailLogs(): EmailLog[] {
+    return this.data.emailLogs || [];
+  }
+
+  addEmailLog(log: Omit<EmailLog, 'id' | 'sentAt'>): EmailLog {
+    const newLog: EmailLog = {
+      ...log,
+      id: 'eml-' + Math.random().toString(36).substring(2, 9),
+      sentAt: new Date().toISOString()
+    };
+    if (!this.data.emailLogs) this.data.emailLogs = [];
+    this.data.emailLogs.push(newLog);
+    this.save();
+    return newLog;
+  }
+
+  updateEmailLogStatus(id: string, status: 'Queued' | 'Sending' | 'Delivered' | 'Failed', errorMessage?: string): EmailLog | undefined {
+    if (!this.data.emailLogs) this.data.emailLogs = [];
+    const index = this.data.emailLogs.findIndex(l => l.id === id);
+    if (index === -1) return undefined;
+    this.data.emailLogs[index] = {
+      ...this.data.emailLogs[index],
+      status,
+      errorMessage,
+      sentAt: new Date().toISOString()
+    };
+    this.save();
+    return this.data.emailLogs[index];
+  }
+
+  clearEmailLogs(): void {
+    this.data.emailLogs = [];
     this.save();
   }
 }
