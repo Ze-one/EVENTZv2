@@ -555,8 +555,10 @@ async function startServer() {
         const base64Data = qrDataUrl.replace(/^data:image\/png;base64,/, '');
         const qrBuffer = Buffer.from(base64Data, 'base64');
 
+        const fromAddress = process.env.SMTP_FROM || process.env.MAILJET_SENDER || `"${event.organizerName || 'ETS N-TECH'}" <${(process.env.SMTP_USER || process.env.MAILJET_SENDER || 'no-reply@eventz.com')}>`;
         const sendResult = await transporter.sendMail({
-          from: process.env.SMTP_FROM || process.env.MAILJET_SENDER || `"${event.organizerName || 'ETS N-TECH'}" <${(process.env.SMTP_USER || process.env.MAILJET_SENDER || 'no-reply@eventz.com')}>`,
+          from: fromAddress,
+          replyTo: fromAddress,
           to: participant.email,
           subject,
           html: htmlContent,

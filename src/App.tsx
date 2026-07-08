@@ -14,7 +14,7 @@ import ReportsView from './components/ReportsView.tsx';
 import ScannerComponent from './components/ScannerComponent.tsx';
 import { 
   Users, Calendar, CheckSquare, BarChart2, LogOut, Camera, ShieldAlert, 
-  CheckCircle2, Menu, X, ArrowLeft, Key, UserCheck, ShieldCheck, Sparkles, UserX, Trash2, RefreshCw
+  CheckCircle2, Menu, X, ArrowLeft, Key, UserCheck, ShieldCheck, Eye, EyeOff, UserX, Trash2, RefreshCw
 } from 'lucide-react';
 
 export default function App() {
@@ -33,6 +33,7 @@ export default function App() {
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   // Active scanning / QR verify states
   const [selectedPassId, setSelectedPassId] = useState<string>('');
@@ -163,41 +164,6 @@ export default function App() {
       }
     } catch (err) {
       setLoginError('Server connection failure. Is database offline?');
-    } finally {
-      setLoginLoading(false);
-    }
-  };
-
-  // Quick select login bypass
-  const handleDemoBypassLogin = async (role: UserRole) => {
-    const email = role === UserRole.ADMIN ? 'admin@etsntech.org' : 'gate@etsntech.org';
-    const password = role === UserRole.ADMIN ? 'admin123' : 'gate123';
-    
-    setLoginEmail(email);
-    setLoginPassword(password);
-    setLoginError('');
-    setLoginLoading(true);
-
-    try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        setCurrentUser(data.user);
-        localStorage.setItem('etsn_user', JSON.stringify(data.user));
-        
-        if (data.user.role === UserRole.GATE_OFFICER) {
-          setCurrentPage('scanner');
-        } else {
-          setCurrentPage('dashboard');
-        }
-      }
-    } catch (err) {
-      setLoginError('Bypass server connection failed.');
     } finally {
       setLoginLoading(false);
     }
@@ -512,7 +478,7 @@ export default function App() {
                 type="email"
                 value={loginEmail}
                 onChange={(e) => setLoginEmail(e.target.value)}
-                placeholder="e.g. admin@etsntech.org"
+                placeholder="Enter your email"
                 required
                 className="w-full p-3 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-yellow-500 text-white transition-all"
               />
@@ -525,13 +491,21 @@ export default function App() {
                   <Key size={14} />
                 </span>
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   value={loginPassword}
                   onChange={(e) => setLoginPassword(e.target.value)}
-                  placeholder="••••••••"
+                  placeholder="Enter your password"
                   required
-                  className="w-full pl-10 pr-4 p-3 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-yellow-500 text-white transition-all"
+                  className="w-full pl-10 pr-10 p-3 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-yellow-500 text-white transition-all"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  className="absolute inset-y-0 right-0 flex items-center pr-3.5 text-slate-400 hover:text-white transition-colors"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
               </div>
             </div>
 
@@ -551,27 +525,6 @@ export default function App() {
             </button>
           </form>
 
-          {/* Quick login bypass utility */}
-          <div className="space-y-3 pt-4 border-t border-slate-800 text-center">
-            <div className="flex items-center justify-center gap-1 text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-              <Sparkles size={11} className="text-yellow-500 animate-pulse" />
-              <span>Interactive Demonstration Bypass</span>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => handleDemoBypassLogin(UserRole.ADMIN)}
-                className="bg-slate-800 hover:bg-slate-700 text-white text-[11px] font-bold py-2.5 px-3 rounded-xl transition-all border border-slate-700/60"
-              >
-                Log In: Admin
-              </button>
-              <button
-                onClick={() => handleDemoBypassLogin(UserRole.GATE_OFFICER)}
-                className="bg-slate-800 hover:bg-slate-700 text-white text-[11px] font-bold py-2.5 px-3 rounded-xl transition-all border border-slate-700/60"
-              >
-                Log In: Gate Officer
-              </button>
-            </div>
-          </div>
         </div>
 
         {/* Footer info */}
