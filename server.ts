@@ -555,7 +555,7 @@ async function startServer() {
         const base64Data = qrDataUrl.replace(/^data:image\/png;base64,/, '');
         const qrBuffer = Buffer.from(base64Data, 'base64');
 
-        await transporter.sendMail({
+        const sendResult = await transporter.sendMail({
           from: process.env.SMTP_FROM || process.env.MAILJET_SENDER || `"${event.organizerName || 'ETS N-TECH'}" <${(process.env.SMTP_USER || process.env.MAILJET_SENDER || 'no-reply@eventz.com')}>`,
           to: participant.email,
           subject,
@@ -567,6 +567,14 @@ async function startServer() {
               cid: 'qrCodeImage'
             }
           ]
+        });
+
+        // Log transporter response for diagnostics (messageId, accepted, rejected)
+        console.log('SMTP send result:', {
+          messageId: sendResult?.messageId,
+          accepted: sendResult?.accepted,
+          rejected: sendResult?.rejected,
+          response: sendResult?.response
         });
 
         await db.updateEmailLogStatus(logId, 'Delivered');
