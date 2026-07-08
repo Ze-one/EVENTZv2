@@ -4,6 +4,10 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/account-management",
+      "destination": "/api/account-management.ts"
+    },
+    {
       "source": "/api/participants/:id/email",
       "destination": "/api/participant-email.ts?id=:id"
     },
