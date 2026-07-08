@@ -661,16 +661,23 @@ async function startServer() {
       status: 'Sending'
     });
 
-    // Execute sending asynchronously
-    sendEventPassEmail(participant, event, log.id, customMessage).catch(console.error);
-
     const isSmtpConfigured = !!(
       process.env.SMTP_HOST &&
       process.env.SMTP_USER &&
       process.env.SMTP_PASS
     );
 
-    res.json({ success: true, log, simulated: !isSmtpConfigured });
+    try {
+      await sendEventPassEmail(participant, event, log.id, customMessage);
+      const updatedLogs = await db.getEmailLogs();
+      const updatedLog = updatedLogs.find((entry) => entry.id === log.id) || log;
+      res.json({ success: true, log: updatedLog, simulated: !isSmtpConfigured });
+    } catch (err: any) {
+      console.error('Participant email send failed:', err);
+      const updatedLogs = await db.getEmailLogs();
+      const updatedLog = updatedLogs.find((entry) => entry.id === log.id) || log;
+      res.status(500).json({ success: false, error: err?.message || 'Send failed', log: updatedLog });
+    }
   });
 
   // Email Pass: Bulk Send passes to participants
@@ -704,8 +711,11 @@ async function startServer() {
         });
         sentLogs.push(log);
 
-        // Execute sending asynchronously
-        sendEventPassEmail(participant, event, log.id, customMessage).catch(console.error);
+        try {
+          await sendEventPassEmail(participant, event, log.id, customMessage);
+        } catch (err: any) {
+          console.error(`Bulk email send failed for ${participant.id}:`, err);
+        }
       }
     }
 
