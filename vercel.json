@@ -8,6 +8,18 @@
       "destination": "/api/account-management.ts"
     },
     {
+      "source": "/api/scan-logs/clear",
+      "destination": "/api/clear-scan-logs.ts"
+    },
+    {
+      "source": "/api/email-logs/clear",
+      "destination": "/api/clear-email-logs.ts"
+    },
+    {
+      "source": "/api/verify/:passId/claim",
+      "destination": "/api/claim-pass.ts?passId=:passId"
+    },
+    {
       "source": "/api/participants/:id/email",
       "destination": "/api/participant-email.ts?id=:id"
     },
