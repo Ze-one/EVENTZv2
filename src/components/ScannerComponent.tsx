@@ -3,72 +3,160 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState, useRef } from 'react';
-import { Html5QrcodeScanner } from 'html5-qrcode';
-import { Participant, ScanResult } from '../types.js';
-import { Camera, RefreshCw, AlertCircle, CheckCircle, Search, HelpCircle, Shield, Sparkles } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Html5Qrcode } from 'html5-qrcode';
+import { Camera, RefreshCw, AlertCircle, Search, HelpCircle } from 'lucide-react';
 
 interface ScannerComponentProps {
   onScanResult: (passId: string) => void;
-  participants: Participant[];
 }
 
-export default function ScannerComponent({ onScanResult, participants }: ScannerComponentProps) {
-  const [scanError, setScanError] = useState<string>('');
+interface CameraDeviceInfo {
+  id: string;
+  label: string;
+}
+
+export default function ScannerComponent({ onScanResult }: ScannerComponentProps) {
   const [manualId, setManualId] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'camera' | 'simulator' | 'manual'>('simulator');
-  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+  const [activeTab, setActiveTab] = useState<'camera' | 'manual'>('camera');
+  const [cameras, setCameras] = useState<CameraDeviceInfo[]>([]);
+  const [selectedCameraId, setSelectedCameraId] = useState<string>('');
+  const [scanError, setScanError] = useState<string>('');
+  const [isCameraLoading, setIsCameraLoading] = useState<boolean>(true);
 
-  // Initialize camera scanner
-  useEffect(() => {
-    if (activeTab === 'camera') {
-      // Clear previous if any
-      if (scannerRef.current) {
-        try {
-          scannerRef.current.clear();
-        } catch (e) {
-          console.error(e);
-        }
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const isStartingRef = useRef(false);
+  const lastScanRef = useRef<{ value: string; time: number }>({ value: '', time: 0 });
+
+  const normalizePassId = (decodedText: string) => {
+    let passId = decodedText.trim();
+    if (passId.includes('/verify/')) {
+      const parts = passId.split('/verify/');
+      passId = parts[parts.length - 1];
+    }
+    return decodeURIComponent(passId).trim().toUpperCase();
+  };
+
+  const stopScanner = async () => {
+    const scanner = scannerRef.current;
+    if (!scanner) return;
+
+    try {
+      const state = (scanner as any).getState?.();
+      if (state === 2) {
+        await scanner.stop();
       }
-
-      const scanner = new Html5QrcodeScanner(
-        'reader-container',
-        { 
-          fps: 10, 
-          qrbox: { width: 250, height: 250 },
-          aspectRatio: 1.0
-        },
-        /* verbose= */ false
-      );
-
-      scanner.render(
-        (decodedText) => {
-          // Check if decodedText looks like our secure URL or is just a Pass ID
-          let passId = decodedText;
-          if (decodedText.includes('/verify/')) {
-            const parts = decodedText.split('/verify/');
-            passId = parts[parts.length - 1];
-          }
-          onScanResult(passId);
-        },
-        (error) => {
-          // Quietly log scanner frame failure
-        }
-      );
-
-      scannerRef.current = scanner;
+    } catch (err) {
+      console.warn('Camera scanner stop warning:', err);
     }
 
-    return () => {
-      if (scannerRef.current) {
-        try {
-          scannerRef.current.clear();
-        } catch (e) {
-          console.error('Unmount clear error:', e);
-        }
+    try {
+      await scanner.clear();
+    } catch (err) {
+      console.warn('Camera scanner clear warning:', err);
+    }
+
+    scannerRef.current = null;
+  };
+
+  const choosePreferredCamera = (deviceList: CameraDeviceInfo[]) => {
+    if (deviceList.length === 0) return '';
+
+    const backCamera = deviceList.find((cam) =>
+      /back|rear|environment|arrière/i.test(cam.label || '')
+    );
+
+    return backCamera?.id || deviceList[0].id;
+  };
+
+  const loadCameras = async () => {
+    setIsCameraLoading(true);
+    setScanError('');
+
+    try {
+      const devices = await Html5Qrcode.getCameras();
+      const mapped = devices.map((camera, index) => ({
+        id: camera.id,
+        label: camera.label || `Camera ${index + 1}`
+      }));
+
+      setCameras(mapped);
+
+      if (mapped.length === 0) {
+        setScanError('No camera was detected on this device. You can still verify the pass using Manual ID.');
+        setActiveTab('manual');
+        return;
       }
+
+      setSelectedCameraId((current) => current || choosePreferredCamera(mapped));
+    } catch (err: any) {
+      console.error('Camera detection failed:', err);
+      setScanError('Camera permission is not available or no camera could be accessed. Allow camera permission in the browser, or use Manual ID.');
+      setActiveTab('manual');
+    } finally {
+      setIsCameraLoading(false);
+    }
+  };
+
+  const startScanner = async (cameraId: string) => {
+    if (!cameraId || activeTab !== 'camera' || isStartingRef.current) return;
+
+    isStartingRef.current = true;
+    setScanError('');
+
+    try {
+      await stopScanner();
+
+      const scanner = new Html5Qrcode('reader-container');
+      scannerRef.current = scanner;
+
+      await scanner.start(
+        cameraId,
+        {
+          fps: 10,
+          qrbox: { width: 250, height: 250 },
+          aspectRatio: 1.0,
+        },
+        (decodedText) => {
+          const passId = normalizePassId(decodedText);
+          const now = Date.now();
+
+          if (lastScanRef.current.value === passId && now - lastScanRef.current.time < 2500) {
+            return;
+          }
+
+          lastScanRef.current = { value: passId, time: now };
+          onScanResult(passId);
+        },
+        () => {
+          // Silent frame-level scan failures are normal while camera is searching for a QR code.
+        }
+      );
+    } catch (err: any) {
+      console.error('Camera scanner start failed:', err);
+      setScanError(err?.message || 'Unable to start this camera. Select another camera or use Manual ID.');
+    } finally {
+      isStartingRef.current = false;
+    }
+  };
+
+  useEffect(() => {
+    loadCameras();
+
+    return () => {
+      stopScanner();
     };
-  }, [activeTab, onScanResult]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'camera' && selectedCameraId) {
+      startScanner(selectedCameraId);
+    } else {
+      stopScanner();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, selectedCameraId]);
 
   const handleManualSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,25 +165,16 @@ export default function ScannerComponent({ onScanResult, participants }: Scanner
     }
   };
 
-  const handleSimulateScan = (passId: string) => {
-    onScanResult(passId);
+  const getCameraDisplayName = (camera: CameraDeviceInfo, index: number) => {
+    const label = camera.label || `Camera ${index + 1}`;
+    if (/back|rear|environment|arrière/i.test(label)) return `Back Camera - ${label}`;
+    if (/front|user|facetime|avant/i.test(label)) return `Front Camera - ${label}`;
+    return label;
   };
 
   return (
     <div className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden w-full max-w-lg mx-auto">
-      {/* Header tab controller */}
       <div className="flex border-b border-slate-100 bg-slate-50/50 p-2 gap-1">
-        <button
-          onClick={() => setActiveTab('simulator')}
-          className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold transition-all ${
-            activeTab === 'simulator'
-              ? 'bg-slate-900 text-white shadow'
-              : 'text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          <Sparkles size={14} />
-          Scan Simulator
-        </button>
         <button
           onClick={() => setActiveTab('camera')}
           className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold transition-all ${
@@ -105,7 +184,7 @@ export default function ScannerComponent({ onScanResult, participants }: Scanner
           }`}
         >
           <Camera size={14} />
-          Device Camera
+          Camera Scanner
         </button>
         <button
           onClick={() => setActiveTab('manual')}
@@ -121,84 +200,50 @@ export default function ScannerComponent({ onScanResult, participants }: Scanner
       </div>
 
       <div className="p-6">
-        {/* TAB 1: SIMULATOR */}
-        {activeTab === 'simulator' && (
-          <div className="space-y-4">
-            <div className="bg-yellow-50 text-yellow-800 border border-yellow-100 rounded-2xl p-4 flex gap-3 text-xs leading-relaxed">
-              <Shield className="text-yellow-600 shrink-0 mt-0.5" size={16} />
-              <div>
-                <p className="font-semibold mb-0.5">Iframe Sandbox / Desktop Testing</p>
-                <p>Since browser webcams are often blocked inside sandboxed iframe previews, use this <b>Interactive Pass Simulator</b>. Select any participant state below to instantly test gates access control, double check-in prevention, and dashboard logs.</p>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">
-                CHOOSE SAMPLE STATE TO SIMULATE
-              </span>
-
-              <div className="grid gap-2 max-h-[300px] overflow-y-auto pr-1">
-                {participants.length === 0 ? (
-                  <div className="text-center py-6 text-slate-400 text-xs border border-dashed rounded-xl">
-                    No participants available to simulate scans. Please add or upload participants first.
-                  </div>
-                ) : (
-                  participants.map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => handleSimulateScan(p.passId)}
-                      className="w-full text-left bg-slate-50 hover:bg-slate-100 border border-slate-200/60 p-3 rounded-2xl flex justify-between items-center transition-all group hover:border-slate-300"
-                    >
-                      <div className="space-y-0.5 min-w-0 pr-2">
-                        <p className="font-bold text-slate-800 text-xs truncate group-hover:text-slate-900">
-                          {p.fullName}
-                        </p>
-                        <p className="font-mono text-[10px] text-slate-400">
-                          {p.passId} {p.category ? `• ${p.category}` : ''}
-                        </p>
-                      </div>
-                      <span className={`text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full shrink-0 ${
-                        p.status === 'Not Used' 
-                          ? 'bg-emerald-100 text-emerald-800' 
-                          : p.status === 'Used' 
-                            ? 'bg-amber-100 text-amber-800 border border-amber-200' 
-                            : 'bg-rose-100 text-rose-800'
-                      }`}>
-                        {p.status === 'Not Used' ? 'Ready to Scan' : p.status}
-                      </span>
-                    </button>
-                  ))
-                )}
-
-                {/* Simulated Invalid Pass Button */}
-                <button
-                  onClick={() => handleSimulateScan('ETSN-2026-9999-FAKE')}
-                  className="w-full text-left bg-rose-50 hover:bg-rose-100 border border-rose-200/50 p-3 rounded-2xl flex justify-between items-center transition-all group"
-                >
-                  <div className="space-y-0.5">
-                    <p className="font-bold text-rose-800 text-xs group-hover:text-rose-900">
-                      Fake/Forgery Pass ID
-                    </p>
-                    <p className="font-mono text-[10px] text-rose-400">
-                      ETSN-2026-9999-FAKE
-                    </p>
-                  </div>
-                  <span className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-rose-200 text-rose-900 shrink-0">
-                    Simulate Forgery
-                  </span>
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 2: DEVICE CAMERA SCANNER */}
         {activeTab === 'camera' && (
           <div className="space-y-4 flex flex-col items-center">
-            <div className="w-full aspect-square max-w-[320px] bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 relative shadow-inner">
-              <div id="reader-container" className="w-full h-full object-cover"></div>
-              
-              {/* Overlay targeting frame */}
+            {scanError && (
+              <div className="w-full bg-rose-50 text-rose-800 border border-rose-100 rounded-2xl p-4 flex gap-3 text-xs leading-relaxed">
+                <AlertCircle className="text-rose-600 shrink-0 mt-0.5" size={16} />
+                <div>
+                  <p className="font-bold">Camera access issue</p>
+                  <p>{scanError}</p>
+                </div>
+              </div>
+            )}
+
+            {cameras.length > 1 && (
+              <div className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-3 space-y-2">
+                <label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">
+                  Select Camera
+                </label>
+                <select
+                  value={selectedCameraId}
+                  onChange={(e) => setSelectedCameraId(e.target.value)}
+                  className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                >
+                  {cameras.map((camera, index) => (
+                    <option key={camera.id} value={camera.id}>
+                      {getCameraDisplayName(camera, index)}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-slate-400 leading-relaxed">
+                  On phones, choose the back camera for scanning participant QR codes. You can switch to the front camera when needed.
+                </p>
+              </div>
+            )}
+
+            <div className="w-full aspect-square max-w-[340px] bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 relative shadow-inner">
+              <div id="reader-container" className="w-full h-full"></div>
+
+              {isCameraLoading && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-white bg-slate-950">
+                  <RefreshCw size={22} className="animate-spin" />
+                  <span className="text-xs font-semibold">Detecting camera...</span>
+                </div>
+              )}
+
               <div className="absolute inset-0 pointer-events-none border-[30px] border-black/30 flex items-center justify-center">
                 <div className="w-full h-full border-2 border-dashed border-yellow-500 rounded-lg relative">
                   <div className="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-yellow-500 -mt-1 -ml-1"></div>
@@ -209,14 +254,22 @@ export default function ScannerComponent({ onScanResult, participants }: Scanner
               </div>
             </div>
 
-            <div className="text-center text-slate-400 text-xs flex items-center gap-1.5 justify-center py-2">
-              <Camera size={13} />
-              Align the participant's QR code within the targeting lines
+            <div className="text-center text-slate-500 text-xs flex flex-col items-center gap-2 justify-center py-2">
+              <div className="flex items-center gap-1.5">
+                <Camera size={13} />
+                <span>Point the camera at the participant's QR code.</span>
+              </div>
+              <button
+                onClick={loadCameras}
+                className="text-[10px] font-bold uppercase tracking-wider text-slate-700 hover:text-slate-950 flex items-center gap-1"
+              >
+                <RefreshCw size={12} />
+                Refresh Cameras
+              </button>
             </div>
           </div>
         )}
 
-        {/* TAB 3: MANUAL ID SEARCH */}
         {activeTab === 'manual' && (
           <form onSubmit={handleManualSearch} className="space-y-4">
             <div className="space-y-1.5">
@@ -249,12 +302,12 @@ export default function ScannerComponent({ onScanResult, participants }: Scanner
             <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 text-[11px] text-slate-500 leading-relaxed">
               <p className="font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
                 <HelpCircle size={13} className="text-slate-400" />
-                Tips for Gate Officers
+                Manual verification fallback
               </p>
               <ul className="list-disc pl-4 space-y-1">
-                <li>Pass IDs are case-insensitive and follow the pattern <code className="bg-slate-200/60 px-1 py-0.5 rounded font-mono text-[10px] text-slate-700">ETSN-2026-XXXX-XXXX</code>.</li>
-                <li>Make sure to double check characters like <code className="bg-slate-200/60 px-1 py-0.5 rounded font-mono text-[10px]">O</code> vs <code className="bg-slate-200/60 px-1 py-0.5 rounded font-mono text-[10px]">0</code> if type is manual.</li>
-                <li>Manual search is useful if the QR code is smudged or if the camera scanner fails to focus.</li>
+                <li>Use this only if the QR code is hard to read, the participant's phone brightness is too low, or camera permission fails.</li>
+                <li>Pass IDs are case-insensitive and can be typed exactly as seen on the pass.</li>
+                <li>Double-check characters like <code className="bg-slate-200/60 px-1 py-0.5 rounded font-mono text-[10px] text-slate-700">O</code> and <code className="bg-slate-200/60 px-1 py-0.5 rounded font-mono text-[10px] text-slate-700">0</code>.</li>
               </ul>
             </div>
           </form>
