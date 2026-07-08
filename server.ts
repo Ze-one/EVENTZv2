@@ -15,9 +15,12 @@ import { PassStatus, ScanResult, UserRole } from './src/types.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const app = express();
+
+export { app };
+
 async function startServer() {
-  const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   // Middleware for body parsing
   app.use(express.json({ limit: '10mb' }));
@@ -32,14 +35,14 @@ async function startServer() {
   // --- API ROUTES ---
 
   // Auth: Login
-  app.post('/api/auth/login', (req, res) => {
+  app.post('/api/auth/login', async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) {
       res.status(400).json({ error: 'Email and password are required' });
       return;
     }
 
-    const user = db.verifyUser(email, password);
+    const user = await db.verifyUser(email, password);
     if (!user) {
       res.status(401).json({ error: 'Invalid email or password' });
       return;
@@ -50,34 +53,43 @@ async function startServer() {
     res.json({ user: safeUser });
   });
 
+  // DB Status
+  app.get('/api/db-status', (req, res) => {
+    res.json({
+      useSupabase: db.useSupabase,
+      dbType: db.useSupabase ? 'Supabase' : 'Local JSON File',
+      databaseFile: process.env.VERCEL ? '/tmp/db.json' : 'db.json'
+    });
+  });
+
   // Event: Get settings
-  app.get('/api/event', (req, res) => {
-    const event = db.getEvent();
+  app.get('/api/event', async (req, res) => {
+    const event = await db.getEvent();
     res.json(event);
   });
 
   // Event: Update settings
-  app.post('/api/event', (req, res) => {
+  app.post('/api/event', async (req, res) => {
     const updates = req.body;
-    const event = db.updateEvent('event-1', updates);
+    const event = await db.updateEvent('event-1', updates);
     res.json(event);
   });
 
   // Participants: List
-  app.get('/api/participants', (req, res) => {
-    const list = db.getParticipants();
+  app.get('/api/participants', async (req, res) => {
+    const list = await db.getParticipants();
     res.json(list);
   });
 
   // Participants: Create one
-  app.post('/api/participants', (req, res) => {
+  app.post('/api/participants', async (req, res) => {
     const { fullName, phone, email, organization, category } = req.body;
     if (!fullName) {
       res.status(400).json({ error: 'Full name is required' });
       return;
     }
 
-    const participant = db.createParticipant({
+    const participant = await db.createParticipant({
       eventId: 'event-1',
       fullName,
       phone: phone || '',
@@ -91,7 +103,7 @@ async function startServer() {
   });
 
   // Participants: Create batch
-  app.post('/api/participants/batch', (req, res) => {
+  app.post('/api/participants/batch', async (req, res) => {
     const { participants } = req.body;
     if (!Array.isArray(participants) || participants.length === 0) {
       res.status(400).json({ error: 'Participants array is required' });
@@ -108,15 +120,15 @@ async function startServer() {
       status: PassStatus.NOT_USED
     }));
 
-    const created = db.createParticipantsBatch(batchData);
+    const created = await db.createParticipantsBatch(batchData);
     res.json({ success: true, count: created.length, data: created });
   });
 
   // Participants: Update
-  app.put('/api/participants/:id', (req, res) => {
+  app.put('/api/participants/:id', async (req, res) => {
     const { id } = req.params;
     const updates = req.body;
-    const updated = db.updateParticipant(id, updates);
+    const updated = await db.updateParticipant(id, updates);
     if (!updated) {
       res.status(404).json({ error: 'Participant not found' });
       return;
@@ -125,9 +137,9 @@ async function startServer() {
   });
 
   // Participants: Delete
-  app.delete('/api/participants/:id', (req, res) => {
+  app.delete('/api/participants/:id', async (req, res) => {
     const { id } = req.params;
-    const deleted = db.deleteParticipant(id);
+    const deleted = await db.deleteParticipant(id);
     if (!deleted) {
       res.status(404).json({ error: 'Participant not found' });
       return;
@@ -136,28 +148,28 @@ async function startServer() {
   });
 
   // Participants: Bulk Delete
-  app.post('/api/participants/bulk-delete', (req, res) => {
+  app.post('/api/participants/bulk-delete', async (req, res) => {
     const { ids } = req.body;
     if (!Array.isArray(ids) || ids.length === 0) {
       res.status(400).json({ error: 'Array of ids is required' });
       return;
     }
-    const initialCount = db.getParticipants().length;
-    db.deleteParticipantsBatch(ids);
-    const deletedCount = initialCount - db.getParticipants().length;
+    const initialCount = (await db.getParticipants()).length;
+    await db.deleteParticipantsBatch(ids);
+    const deletedCount = initialCount - (await db.getParticipants()).length;
     res.json({ success: true, count: deletedCount });
   });
 
   // Participants: Reset check-in
-  app.post('/api/participants/:id/reset', (req, res) => {
+  app.post('/api/participants/:id/reset', async (req, res) => {
     const { id } = req.params;
-    const participant = db.getParticipantById(id);
+    const participant = await db.getParticipantById(id);
     if (!participant) {
       res.status(404).json({ error: 'Participant not found' });
       return;
     }
 
-    const updated = db.updateParticipant(id, {
+    const updated = await db.updateParticipant(id, {
       status: PassStatus.NOT_USED,
       checkedInAt: undefined,
       checkedInBy: undefined
@@ -167,16 +179,16 @@ async function startServer() {
   });
 
   // QR Verification: Query and Log
-  app.get('/api/verify/:passId', (req, res) => {
+  app.get('/api/verify/:passId', async (req, res) => {
     const { passId } = req.params;
     const { ipAddress, deviceInfo } = getClientInfo(req);
     const scannedBy = (req.query.scannedBy as string) || 'Gate Browser';
 
-    const participant = db.getParticipantByPassId(passId);
+    const participant = await db.getParticipantByPassId(passId);
 
     if (!participant) {
       // Record Invalid attempt
-      db.addScanLog({
+      await db.addScanLog({
         eventId: 'event-1',
         passId,
         scanResult: ScanResult.INVALID,
@@ -190,7 +202,7 @@ async function startServer() {
 
     if (participant.status === PassStatus.CANCELLED) {
       // Record Cancelled attempt
-      db.addScanLog({
+      await db.addScanLog({
         eventId: 'event-1',
         participantId: participant.id,
         passId,
@@ -205,7 +217,7 @@ async function startServer() {
 
     if (participant.status === PassStatus.USED) {
       // Record duplicate entry attempt
-      db.addScanLog({
+      await db.addScanLog({
         eventId: 'event-1',
         participantId: participant.id,
         passId,
@@ -223,13 +235,13 @@ async function startServer() {
   });
 
   // QR Verification: Claim (Mark as Entered)
-  app.post('/api/verify/:passId/claim', (req, res) => {
+  app.post('/api/verify/:passId/claim', async (req, res) => {
     const { passId } = req.params;
     const { checkedInBy } = req.body;
     const { ipAddress, deviceInfo } = getClientInfo(req);
     const scannedBy = checkedInBy || 'Gate Officer';
 
-    const participant = db.getParticipantByPassId(passId);
+    const participant = await db.getParticipantByPassId(passId);
 
     if (!participant) {
       res.status(404).json({ error: 'Participant pass not found' });
@@ -243,14 +255,14 @@ async function startServer() {
 
     // Update status to USED
     const checkedInAt = new Date().toISOString();
-    const updated = db.updateParticipant(participant.id, {
+    const updated = await db.updateParticipant(participant.id, {
       status: PassStatus.USED,
       checkedInAt,
       checkedInBy: scannedBy
     });
 
     // Record Valid Scan Log
-    db.addScanLog({
+    await db.addScanLog({
       eventId: 'event-1',
       participantId: participant.id,
       passId,
@@ -264,25 +276,25 @@ async function startServer() {
   });
 
   // Scan Logs: List
-  app.get('/api/scan-logs', (req, res) => {
-    const logs = db.getScanLogs();
+  app.get('/api/scan-logs', async (req, res) => {
+    const logs = await db.getScanLogs();
     res.json(logs);
   });
 
   // Scan Logs: Clear
-  app.post('/api/scan-logs/clear', (req, res) => {
-    db.clearScanLogs();
+  app.post('/api/scan-logs/clear', async (req, res) => {
+    await db.clearScanLogs();
     res.json({ success: true });
   });
 
   // Email Logs: List
-  app.get('/api/email-logs', (req, res) => {
-    res.json(db.getEmailLogs());
+  app.get('/api/email-logs', async (req, res) => {
+    res.json(await db.getEmailLogs());
   });
 
   // Email Logs: Clear
-  app.post('/api/email-logs/clear', (req, res) => {
-    db.clearEmailLogs();
+  app.post('/api/email-logs/clear', async (req, res) => {
+    await db.clearEmailLogs();
     res.json({ success: true });
   });
 
@@ -533,19 +545,19 @@ async function startServer() {
           ]
         });
 
-        db.updateEmailLogStatus(logId, 'Delivered');
+        await db.updateEmailLogStatus(logId, 'Delivered');
       } catch (err: any) {
         console.error('SMTP real sending failed:', err);
-        db.updateEmailLogStatus(logId, 'Failed', err.message || 'SMTP delivery failed');
+        await db.updateEmailLogStatus(logId, 'Failed', err.message || 'SMTP delivery failed');
       }
     } else {
       // Simulate network delivery
-      setTimeout(() => {
+      setTimeout(async () => {
         const isInvalid = participant.email.toLowerCase().includes('invalid') || participant.email.toLowerCase().includes('bounce') || participant.email.toLowerCase().includes('fail');
         if (isInvalid) {
-          db.updateEmailLogStatus(logId, 'Failed', 'SMTP Transport Error: Mailbox unavailable or rejected recipient address.');
+          await db.updateEmailLogStatus(logId, 'Failed', 'SMTP Transport Error: Mailbox unavailable or rejected recipient address.');
         } else {
-          db.updateEmailLogStatus(logId, 'Delivered', 'Simulated (SMTP host credentials not configured in workspace)');
+          await db.updateEmailLogStatus(logId, 'Delivered', 'Simulated (SMTP host credentials not configured in workspace)');
         }
       }, 1200 + Math.random() * 1200);
     }
@@ -554,7 +566,7 @@ async function startServer() {
   // Email Pass: Send single pass to participant email
   app.post('/api/participants/:id/email', async (req, res) => {
     const { id } = req.params;
-    let participant = db.getParticipantById(id);
+    let participant = await db.getParticipantById(id);
     if (!participant) {
       res.status(404).json({ error: 'Participant not found' });
       return;
@@ -563,7 +575,7 @@ async function startServer() {
     const { customMessage, email } = req.body;
 
     if (email && email.trim() && email.trim() !== participant.email) {
-      const updated = db.updateParticipant(id, { email: email.trim() });
+      const updated = await db.updateParticipant(id, { email: email.trim() });
       if (updated) {
         participant = updated;
       }
@@ -574,10 +586,10 @@ async function startServer() {
       return;
     }
 
-    const event = db.getEvent();
+    const event = await db.getEvent();
     const subject = `Your Entrance Pass: ${event?.eventName || 'Tech Summit'}`;
 
-    const log = db.addEmailLog({
+    const log = await db.addEmailLog({
       eventId: 'event-1',
       participantId: participant.id,
       participantName: participant.fullName,
@@ -606,7 +618,7 @@ async function startServer() {
       return;
     }
 
-    const event = db.getEvent();
+    const event = await db.getEvent();
     const subject = `Your Entrance Pass: ${event?.eventName || 'Tech Summit'}`;
     const sentLogs = [];
 
@@ -617,9 +629,9 @@ async function startServer() {
     );
 
     for (const id of ids) {
-      const participant = db.getParticipantById(id);
+      const participant = await db.getParticipantById(id);
       if (participant && participant.email) {
-        const log = db.addEmailLog({
+        const log = await db.addEmailLog({
           eventId: 'event-1',
           participantId: participant.id,
           participantName: participant.fullName,
@@ -640,23 +652,25 @@ async function startServer() {
 
   // --- VITE DEV / PRODUCTION INTEGRATION ---
 
-  if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+  if (!process.env.VERCEL) {
+    if (process.env.NODE_ENV !== 'production') {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    } else {
+      const distPath = path.join(process.cwd(), 'dist');
+      app.use(express.static(distPath));
+      app.get('*', (req, res) => {
+        res.sendFile(path.join(distPath, 'index.html'));
+      });
+    }
+
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`[ETSNTECH Server] Running at http://localhost:${PORT}`);
     });
   }
-
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[ETSNTECH Server] Running at http://localhost:${PORT}`);
-  });
 }
 
 startServer();

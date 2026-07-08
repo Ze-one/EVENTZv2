@@ -6,10 +6,26 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { User, EventDetails, Participant, ScanLog, UserRole, PassStatus, EmailLog } from '../types.js';
 
 // Simple in-memory storage backed by a JSON file
-const DB_FILE = path.join(process.cwd(), 'db.json');
+let DB_FILE = path.join(process.cwd(), 'db.json');
+
+// Optimize for serverless environments (like Vercel) where the root filesystem is read-only
+if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
+  const tempDbPath = path.join('/tmp', 'db.json');
+  try {
+    if (!fs.existsSync(tempDbPath)) {
+      if (fs.existsSync(DB_FILE)) {
+        fs.copyFileSync(DB_FILE, tempDbPath);
+      }
+    }
+    DB_FILE = tempDbPath;
+  } catch (err) {
+    console.error('Failed to copy db.json to /tmp, falling back to local path:', err);
+  }
+}
 
 interface DatabaseSchema {
   users: User[];
@@ -116,12 +132,99 @@ const defaultDb: DatabaseSchema = {
 
 class DB {
   private data: DatabaseSchema = defaultDb;
+  private supabase: SupabaseClient | null = null;
+  public useSupabase = false;
 
   constructor() {
-    this.load();
+    this.initSupabase();
+    if (!this.useSupabase) {
+      this.loadLocal();
+    }
   }
 
-  private load() {
+  private initSupabase() {
+    const url = process.env.SUPABASE_URL || '';
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
+    if (url && key) {
+      try {
+        this.supabase = createClient(url, key, {
+          auth: {
+            persistSession: false
+          }
+        });
+        this.useSupabase = true;
+        console.log('[DB] Supabase connection initialized successfully!');
+        
+        // Seed database in the background
+        this.seedSupabase().catch(err => {
+          console.error('[DB] Error seeding Supabase:', err);
+        });
+      } catch (err) {
+        console.error('[DB] Failed to initialize Supabase client:', err);
+        this.useSupabase = false;
+      }
+    } else {
+      console.log('[DB] Supabase credentials not found in environment. Using local JSON database.');
+    }
+  }
+
+  private async seedSupabase() {
+    if (!this.supabase) return;
+    try {
+      console.log('[DB] Checking table schemas and seeding defaults in Supabase...');
+
+      // 1. Check & Seed Event
+      const { data: eventData, error: eventErr } = await this.supabase
+        .from('events')
+        .select('id')
+        .limit(1);
+
+      if (eventErr) {
+        console.warn('[DB] Could not query "events" table (it might not exist yet). Error:', eventErr.message);
+        return;
+      }
+
+      if (!eventData || eventData.length === 0) {
+        console.log('[DB] Seeding default event to Supabase events table...');
+        const { error: insErr } = await this.supabase
+          .from('events')
+          .insert(defaultDb.events);
+        if (insErr) console.error('[DB] Failed to seed default event:', insErr.message);
+      }
+
+      // 2. Check & Seed Users
+      const { data: userData, error: userErr } = await this.supabase
+        .from('users')
+        .select('id')
+        .limit(1);
+
+      if (!userErr && (!userData || userData.length === 0)) {
+        console.log('[DB] Seeding default users to Supabase users table...');
+        const { error: insErr } = await this.supabase
+          .from('users')
+          .insert(defaultDb.users);
+        if (insErr) console.error('[DB] Failed to seed default users:', insErr.message);
+      }
+
+      // 3. Check & Seed Participants
+      const { data: partData, error: partErr } = await this.supabase
+        .from('participants')
+        .select('id')
+        .limit(1);
+
+      if (!partErr && (!partData || partData.length === 0)) {
+        console.log('[DB] Seeding default participants to Supabase participants table...');
+        const { error: insErr } = await this.supabase
+          .from('participants')
+          .insert(defaultDb.participants);
+        if (insErr) console.error('[DB] Failed to seed default participants:', insErr.message);
+      }
+    } catch (err) {
+      console.error('[DB] Unexpected error seeding Supabase:', err);
+    }
+  }
+
+  private loadLocal() {
     try {
       if (fs.existsSync(DB_FILE)) {
         const content = fs.readFileSync(DB_FILE, 'utf-8');
@@ -133,7 +236,7 @@ class DB {
         if (!this.data.scanLogs) this.data.scanLogs = defaultDb.scanLogs;
         if (!this.data.emailLogs) this.data.emailLogs = [];
       } else {
-        this.save();
+        this.saveLocal();
       }
     } catch (error) {
       console.error('Error loading database, using in-memory defaults:', error);
@@ -141,7 +244,7 @@ class DB {
     }
   }
 
-  private save() {
+  private saveLocal() {
     try {
       fs.writeFileSync(DB_FILE, JSON.stringify(this.data, null, 2), 'utf-8');
     } catch (error) {
@@ -150,16 +253,30 @@ class DB {
   }
 
   // --- Users Methods ---
-  getUsers(): User[] {
+  async getUsers(): Promise<User[]> {
+    if (this.useSupabase && this.supabase) {
+      const { data, error } = await this.supabase.from('users').select('*');
+      if (!error && data) return data as User[];
+      console.error('[DB] Supabase getUsers error, falling back to local:', error?.message);
+    }
     return this.data.users;
   }
 
-  getUserByEmail(email: string): User | undefined {
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    if (this.useSupabase && this.supabase) {
+      const { data, error } = await this.supabase
+        .from('users')
+        .select('*')
+        .eq('email', email.trim())
+        .maybeSingle();
+      if (!error && data) return data as User;
+      if (error) console.error('[DB] Supabase getUserByEmail error:', error.message);
+    }
     return this.data.users.find(u => u.email.toLowerCase() === email.toLowerCase());
   }
 
-  verifyUser(email: string, passwordPlain: string): User | undefined {
-    const user = this.getUserByEmail(email);
+  async verifyUser(email: string, passwordPlain: string): Promise<User | undefined> {
+    const user = await this.getUserByEmail(email);
     if (!user) return undefined;
     const hash = hashPassword(passwordPlain);
     if (user.passwordHash === hash) {
@@ -168,31 +285,96 @@ class DB {
     return undefined;
   }
 
-  createUser(user: Omit<User, 'id' | 'passwordHash' | 'createdAt'>, passwordPlain: string): User {
+  async createUser(user: Omit<User, 'id' | 'passwordHash' | 'createdAt'>, passwordPlain: string): Promise<User> {
     const newUser: User = {
       ...user,
       id: 'user-' + Math.random().toString(36).substring(2, 9),
       passwordHash: hashPassword(passwordPlain),
       createdAt: new Date().toISOString()
     };
+
+    if (this.useSupabase && this.supabase) {
+      const { error } = await this.supabase.from('users').insert(newUser);
+      if (!error) return newUser;
+      console.error('[DB] Supabase createUser error, falling back to local:', error.message);
+    }
+
     this.data.users.push(newUser);
-    this.save();
+    this.saveLocal();
     return newUser;
   }
 
   // --- Events Methods ---
-  getEvents(): EventDetails[] {
+  async getEvents(): Promise<EventDetails[]> {
+    if (this.useSupabase && this.supabase) {
+      const { data, error } = await this.supabase.from('events').select('*');
+      if (!error && data) return data as EventDetails[];
+      console.error('[DB] Supabase getEvents error, falling back to local:', error?.message);
+    }
     return this.data.events;
   }
 
-  getEvent(id: string = DEFAULT_EVENT_ID): EventDetails | undefined {
+  async getEvent(id: string = DEFAULT_EVENT_ID): Promise<EventDetails | undefined> {
+    if (this.useSupabase && this.supabase) {
+      const { data, error } = await this.supabase
+        .from('events')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+      if (!error && data) return data as EventDetails;
+
+      const { data: firstEvent } = await this.supabase.from('events').select('*').limit(1);
+      if (firstEvent && firstEvent.length > 0) return firstEvent[0] as EventDetails;
+
+      if (error) console.error('[DB] Supabase getEvent error:', error.message);
+    }
     return this.data.events.find(e => e.id === id) || this.data.events[0];
   }
 
-  updateEvent(id: string, updates: Partial<Omit<EventDetails, 'id' | 'createdAt'>>): EventDetails {
+  async updateEvent(id: string, updates: Partial<Omit<EventDetails, 'id' | 'createdAt'>>): Promise<EventDetails> {
+    const updatedAt = new Date().toISOString();
+
+    if (this.useSupabase && this.supabase) {
+      const { data, error } = await this.supabase
+        .from('events')
+        .update({ ...updates, updatedAt })
+        .eq('id', id)
+        .select()
+        .maybeSingle();
+
+      if (!error && data) {
+        return data as EventDetails;
+      }
+
+      const newEvent: EventDetails = {
+        id,
+        eventName: updates.eventName || 'ETS N-TECH Event',
+        eventDate: updates.eventDate || '',
+        eventTime: updates.eventTime || '',
+        venue: updates.venue || '',
+        organizerName: updates.organizerName || 'ETS N-TECH',
+        description: updates.description || '',
+        passTitle: updates.passTitle || 'EVENT PASS',
+        accessInstruction: updates.accessInstruction || '',
+        footerNote: updates.footerNote || '',
+        logoPath: updates.logoPath || '',
+        primaryColor: updates.primaryColor || '#0f172a',
+        accentColor: updates.accentColor || '#eab308',
+        showPhone: updates.showPhone !== undefined ? updates.showPhone : true,
+        showEmail: updates.showEmail !== undefined ? updates.showEmail : true,
+        showCategory: updates.showCategory !== undefined ? updates.showCategory : true,
+        showOrganization: updates.showOrganization !== undefined ? updates.showOrganization : true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      const { error: insErr } = await this.supabase.from('events').insert(newEvent);
+      if (!insErr) return newEvent;
+      console.error('[DB] Supabase updateEvent error, falling back to local:', insErr.message);
+    }
+
     const index = this.data.events.findIndex(e => e.id === id);
     if (index === -1) {
-      // Create new
       const newEvent: EventDetails = {
         id,
         eventName: updates.eventName || 'ETS N-TECH Event',
@@ -215,35 +397,69 @@ class DB {
         updatedAt: new Date().toISOString()
       };
       this.data.events.push(newEvent);
-      this.save();
+      this.saveLocal();
       return newEvent;
     } else {
       this.data.events[index] = {
         ...this.data.events[index],
         ...updates,
-        updatedAt: new Date().toISOString()
+        updatedAt
       };
-      this.save();
+      this.saveLocal();
       return this.data.events[index];
     }
   }
 
   // --- Participants Methods ---
-  getParticipants(): Participant[] {
+  async getParticipants(): Promise<Participant[]> {
+    if (this.useSupabase && this.supabase) {
+      const { data, error } = await this.supabase.from('participants').select('*');
+      if (!error && data) return data as Participant[];
+      console.error('[DB] Supabase getParticipants error, falling back to local:', error?.message);
+    }
     return this.data.participants;
   }
 
-  getParticipantById(id: string): Participant | undefined {
+  async getParticipantById(id: string): Promise<Participant | undefined> {
+    if (this.useSupabase && this.supabase) {
+      const { data, error } = await this.supabase
+        .from('participants')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+      if (!error && data) return data as Participant;
+      if (error) console.error('[DB] Supabase getParticipantById error:', error.message);
+    }
     return this.data.participants.find(p => p.id === id);
   }
 
-  getParticipantByPassId(passId: string): Participant | undefined {
-    return this.data.participants.find(p => p.passId.toUpperCase().trim() === passId.toUpperCase().trim());
+  async getParticipantByPassId(passId: string): Promise<Participant | undefined> {
+    const trimmed = passId.toUpperCase().trim();
+    if (this.useSupabase && this.supabase) {
+      const { data, error } = await this.supabase
+        .from('participants')
+        .select('*')
+        .eq('passId', trimmed)
+        .maybeSingle();
+      if (!error && data) return data as Participant;
+      if (error) console.error('[DB] Supabase getParticipantByPassId error:', error.message);
+    }
+    return this.data.participants.find(p => p.passId.toUpperCase().trim() === trimmed);
   }
 
-  createParticipant(participant: Omit<Participant, 'id' | 'passId' | 'createdAt' | 'updatedAt'>): Participant {
+  async createParticipant(participant: Omit<Participant, 'id' | 'passId' | 'createdAt' | 'updatedAt'>): Promise<Participant> {
     const randomSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
-    const count = this.data.participants.length + 1;
+
+    let count = this.data.participants.length + 1;
+    if (this.useSupabase && this.supabase) {
+      const { count: dbCount, error } = await this.supabase
+        .from('participants')
+        .select('*', { count: 'exact', head: true });
+      if (!error && dbCount !== null) {
+        count = dbCount + 1;
+      }
+    }
+
     const formattedCount = String(count).padStart(4, '0');
     const passId = `ETSN-2026-${formattedCount}-${randomSuffix}`;
 
@@ -254,14 +470,30 @@ class DB {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
+
+    if (this.useSupabase && this.supabase) {
+      const { error } = await this.supabase.from('participants').insert(newPart);
+      if (!error) return newPart;
+      console.error('[DB] Supabase createParticipant error, falling back to local:', error.message);
+    }
+
     this.data.participants.push(newPart);
-    this.save();
+    this.saveLocal();
     return newPart;
   }
 
-  createParticipantsBatch(batch: Omit<Participant, 'id' | 'passId' | 'createdAt' | 'updatedAt'>[]): Participant[] {
+  async createParticipantsBatch(batch: Omit<Participant, 'id' | 'passId' | 'createdAt' | 'updatedAt'>[]): Promise<Participant[]> {
     const created: Participant[] = [];
+
     let currentCount = this.data.participants.length;
+    if (this.useSupabase && this.supabase) {
+      const { count: dbCount, error } = await this.supabase
+        .from('participants')
+        .select('*', { count: 'exact', head: true });
+      if (!error && dbCount !== null) {
+        currentCount = dbCount;
+      }
+    }
 
     for (const item of batch) {
       currentCount++;
@@ -276,87 +508,171 @@ class DB {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
-      this.data.participants.push(newPart);
       created.push(newPart);
     }
-    this.save();
+
+    if (this.useSupabase && this.supabase) {
+      const { error } = await this.supabase.from('participants').insert(created);
+      if (!error) return created;
+      console.error('[DB] Supabase createParticipantsBatch error, falling back to local:', error.message);
+    }
+
+    this.data.participants.push(...created);
+    this.saveLocal();
     return created;
   }
 
-  updateParticipant(id: string, updates: Partial<Omit<Participant, 'id' | 'passId' | 'createdAt'>>): Participant | undefined {
+  async updateParticipant(id: string, updates: Partial<Omit<Participant, 'id' | 'passId' | 'createdAt'>>): Promise<Participant | undefined> {
+    const updatedAt = new Date().toISOString();
+
+    if (this.useSupabase && this.supabase) {
+      const { data, error } = await this.supabase
+        .from('participants')
+        .update({ ...updates, updatedAt })
+        .eq('id', id)
+        .select()
+        .maybeSingle();
+      if (!error && data) return data as Participant;
+      console.error('[DB] Supabase updateParticipant error, falling back to local:', error?.message);
+    }
+
     const index = this.data.participants.findIndex(p => p.id === id);
     if (index === -1) return undefined;
 
     this.data.participants[index] = {
       ...this.data.participants[index],
       ...updates,
-      updatedAt: new Date().toISOString()
+      updatedAt
     };
-    this.save();
+    this.saveLocal();
     return this.data.participants[index];
   }
 
-  deleteParticipant(id: string): boolean {
+  async deleteParticipant(id: string): Promise<boolean> {
+    if (this.useSupabase && this.supabase) {
+      const { error } = await this.supabase.from('participants').delete().eq('id', id);
+      if (!error) return true;
+      console.error('[DB] Supabase deleteParticipant error, falling back to local:', error.message);
+    }
+
     const index = this.data.participants.findIndex(p => p.id === id);
     if (index === -1) return false;
     this.data.participants.splice(index, 1);
-    this.save();
+    this.saveLocal();
     return true;
   }
 
-  deleteParticipantsBatch(ids: string[]): boolean {
+  async deleteParticipantsBatch(ids: string[]): Promise<boolean> {
+    if (this.useSupabase && this.supabase) {
+      const { error } = await this.supabase.from('participants').delete().in('id', ids);
+      if (!error) return true;
+      console.error('[DB] Supabase deleteParticipantsBatch error, falling back to local:', error.message);
+    }
+
     const initialLength = this.data.participants.length;
     this.data.participants = this.data.participants.filter(p => !ids.includes(p.id));
-    this.save();
+    this.saveLocal();
     return this.data.participants.length < initialLength;
   }
 
   // --- Scan Logs Methods ---
-  getScanLogs(): ScanLog[] {
-    // Populate with participant names for display convenience
-    return this.data.scanLogs.map(log => {
-      const part = this.getParticipantByPassId(log.passId);
-      return {
+  async getScanLogs(): Promise<ScanLog[]> {
+    let scanLogs: ScanLog[] = [];
+    if (this.useSupabase && this.supabase) {
+      const { data, error } = await this.supabase.from('scanLogs').select('*');
+      if (!error && data) {
+        scanLogs = data as ScanLog[];
+      } else {
+        console.error('[DB] Supabase getScanLogs error, falling back to local:', error?.message);
+        scanLogs = this.data.scanLogs;
+      }
+    } else {
+      scanLogs = this.data.scanLogs;
+    }
+
+    const hydratedLogs = [];
+    for (const log of scanLogs) {
+      const part = await this.getParticipantByPassId(log.passId);
+      hydratedLogs.push({
         ...log,
         participantName: part ? part.fullName : log.participantName || 'Unknown'
-      };
-    });
+      });
+    }
+    return hydratedLogs;
   }
 
-  addScanLog(log: Omit<ScanLog, 'id' | 'createdAt'>): ScanLog {
+  async addScanLog(log: Omit<ScanLog, 'id' | 'createdAt'>): Promise<ScanLog> {
     const newLog: ScanLog = {
       ...log,
       id: 'log-' + Math.random().toString(36).substring(2, 9),
       createdAt: new Date().toISOString()
     };
+
+    if (this.useSupabase && this.supabase) {
+      const { error } = await this.supabase.from('scanLogs').insert(newLog);
+      if (!error) return newLog;
+      console.error('[DB] Supabase addScanLog error, falling back to local:', error.message);
+    }
+
     this.data.scanLogs.push(newLog);
-    this.save();
+    this.saveLocal();
     return newLog;
   }
 
-  clearScanLogs(): void {
+  async clearScanLogs(): Promise<void> {
+    if (this.useSupabase && this.supabase) {
+      const { error } = await this.supabase.from('scanLogs').delete().neq('id', '');
+      if (!error) return;
+      console.error('[DB] Supabase clearScanLogs error, falling back to local:', error.message);
+    }
+
     this.data.scanLogs = [];
-    this.save();
+    this.saveLocal();
   }
 
   // --- Email Logs Methods ---
-  getEmailLogs(): EmailLog[] {
+  async getEmailLogs(): Promise<EmailLog[]> {
+    if (this.useSupabase && this.supabase) {
+      const { data, error } = await this.supabase.from('emailLogs').select('*');
+      if (!error && data) return data as EmailLog[];
+      console.error('[DB] Supabase getEmailLogs error, falling back to local:', error?.message);
+    }
     return this.data.emailLogs || [];
   }
 
-  addEmailLog(log: Omit<EmailLog, 'id' | 'sentAt'>): EmailLog {
+  async addEmailLog(log: Omit<EmailLog, 'id' | 'sentAt'>): Promise<EmailLog> {
     const newLog: EmailLog = {
       ...log,
       id: 'eml-' + Math.random().toString(36).substring(2, 9),
       sentAt: new Date().toISOString()
     };
+
+    if (this.useSupabase && this.supabase) {
+      const { error } = await this.supabase.from('emailLogs').insert(newLog);
+      if (!error) return newLog;
+      console.error('[DB] Supabase addEmailLog error, falling back to local:', error.message);
+    }
+
     if (!this.data.emailLogs) this.data.emailLogs = [];
     this.data.emailLogs.push(newLog);
-    this.save();
+    this.saveLocal();
     return newLog;
   }
 
-  updateEmailLogStatus(id: string, status: 'Queued' | 'Sending' | 'Delivered' | 'Failed', errorMessage?: string): EmailLog | undefined {
+  async updateEmailLogStatus(id: string, status: 'Queued' | 'Sending' | 'Delivered' | 'Failed', errorMessage?: string): Promise<EmailLog | undefined> {
+    const sentAt = new Date().toISOString();
+
+    if (this.useSupabase && this.supabase) {
+      const { data, error } = await this.supabase
+        .from('emailLogs')
+        .update({ status, errorMessage, sentAt })
+        .eq('id', id)
+        .select()
+        .maybeSingle();
+      if (!error && data) return data as EmailLog;
+      console.error('[DB] Supabase updateEmailLogStatus error, falling back to local:', error?.message);
+    }
+
     if (!this.data.emailLogs) this.data.emailLogs = [];
     const index = this.data.emailLogs.findIndex(l => l.id === id);
     if (index === -1) return undefined;
@@ -364,15 +680,21 @@ class DB {
       ...this.data.emailLogs[index],
       status,
       errorMessage,
-      sentAt: new Date().toISOString()
+      sentAt
     };
-    this.save();
+    this.saveLocal();
     return this.data.emailLogs[index];
   }
 
-  clearEmailLogs(): void {
+  async clearEmailLogs(): Promise<void> {
+    if (this.useSupabase && this.supabase) {
+      const { error } = await this.supabase.from('emailLogs').delete().neq('id', '');
+      if (!error) return;
+      console.error('[DB] Supabase clearEmailLogs error, falling back to local:', error.message);
+    }
+
     this.data.emailLogs = [];
-    this.save();
+    this.saveLocal();
   }
 }
 
