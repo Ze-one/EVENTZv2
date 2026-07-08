@@ -4,6 +4,14 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/participants/:id/email",
+      "destination": "/api/participant-email.ts?id=:id"
+    },
+    {
+      "source": "/api/participants/bulk-email",
+      "destination": "/api/bulk-email.ts"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/index.ts"
     },
