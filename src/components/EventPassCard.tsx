@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { Participant, EventDetails } from '../types.js';
-import { Download, Printer } from 'lucide-react';
+import { Download, Printer, TicketCheck, ShieldCheck, Users, Star, QrCode, Sparkles } from 'lucide-react';
 
 interface EventPassCardProps {
   participant: Participant;
@@ -14,20 +14,60 @@ interface EventPassCardProps {
   onPrint?: () => void;
 }
 
-const BRAND = {
-  name: 'EVENTZ',
+const DEFAULT_DESIGN = {
+  designType: 'ticket',
+  backgroundColor: '#d8dcdf',
+  topBarColor: '#d8dcdf',
+  brandPanelColor: '#ffffff',
+  textColor: '#020617',
+  mutedTextColor: '#475569',
+  logoBlockColor: '#0b1f4d',
+  qrFrameColor: '#ffffff',
+  primaryColor: '#0b1f4d',
+  accentColor: '#f2a900',
+  logoText: 'eventZ',
   slogan: 'manage your event access by ETS.NTECH',
-  navy: '#0b1f4d',
-  gold: '#f2a900'
+  icon: 'ticket',
+  cornerRadius: 32,
+  qrSize: 208,
+  showTopNotch: true,
+  showBrandPanel: true,
+  fontStyle: 'modern',
+};
+
+type PassDesign = typeof DEFAULT_DESIGN;
+
+function getDesign(event: EventDetails): PassDesign {
+  try {
+    const parsed = JSON.parse(event.logoPath || '{}');
+    if (parsed?.type === 'eventz-pass-design') return { ...DEFAULT_DESIGN, ...parsed };
+  } catch {}
+  return {
+    ...DEFAULT_DESIGN,
+    primaryColor: event.primaryColor || DEFAULT_DESIGN.primaryColor,
+    accentColor: event.accentColor || DEFAULT_DESIGN.accentColor,
+    logoBlockColor: event.primaryColor || DEFAULT_DESIGN.logoBlockColor,
+  };
+}
+
+const iconMap: Record<string, React.ElementType> = {
+  ticket: TicketCheck,
+  shield: ShieldCheck,
+  users: Users,
+  star: Star,
+  qr: QrCode,
+  sparkles: Sparkles,
 };
 
 export default function EventPassCard({ participant, event, onPrint }: EventPassCardProps) {
   const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
   const cardRef = useRef<HTMLDivElement>(null);
+  const design = useMemo(() => getDesign(event), [event]);
+  const BrandIcon = iconMap[design.icon] || TicketCheck;
 
   useEffect(() => {
     const verifyUrl = `${window.location.origin}/verify/${participant.passId}`;
-    QRCode.toDataURL(verifyUrl, { width: 360, margin: 1, color: { dark: '#000000', light: '#ffffff' } })
+    QRCode.toDataURL(verifyUrl, { width: 420, margin: 1, color: { dark: '#000000', light: '#ffffff' } })
       .then(setQrCodeUrl)
       .catch(err => console.error('Error generating QR code:', err));
   }, [participant.passId]);
@@ -39,22 +79,13 @@ export default function EventPassCard({ participant, event, onPrint }: EventPass
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
     printWindow.document.write(`
-      <html>
-        <head>
-          <title>Print EVENTZ Pass - ${participant.fullName}</title>
-          <script src="https://cdn.tailwindcss.com"></script>
-          <style>@media print{body{margin:0;padding:20px;-webkit-print-color-adjust:exact}.no-print{display:none}}</style>
-        </head>
-        <body class="bg-white flex justify-center items-center min-h-screen">
-          <div class="w-[430px]">${printContent}</div>
-          <script>window.onload=function(){window.print();window.close();}</script>
-        </body>
-      </html>
+      <html><head><title>Print EVENTZ Pass - ${participant.fullName}</title><script src="https://cdn.tailwindcss.com"></script><style>@media print{body{margin:0;padding:20px;-webkit-print-color-adjust:exact}.no-print{display:none}}</style></head>
+      <body class="bg-white flex justify-center items-center min-h-screen"><div class="w-[430px]">${printContent}</div><script>window.onload=function(){window.print();window.close();}</script></body></html>
     `);
     printWindow.document.close();
   };
 
-  const drawText = (ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, lineHeight: number) => {
+  const wrapCanvasText = (ctx: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, lineHeight: number) => {
     const words = String(text || '').split(' ');
     let line = '';
     words.forEach((word) => {
@@ -75,24 +106,22 @@ export default function EventPassCard({ participant, event, onPrint }: EventPass
     canvas.width = 860;
     canvas.height = 1260;
 
-    ctx.fillStyle = '#d8dcdf';
+    ctx.fillStyle = design.backgroundColor;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.fillStyle = '#f8fafc';
+    ctx.fillStyle = design.brandPanelColor;
     ctx.fillRect(0, 145, canvas.width, 180);
-    ctx.fillStyle = '#d8dcdf';
+    ctx.fillStyle = design.topBarColor;
     ctx.fillRect(0, 0, canvas.width, 145);
 
-    ctx.fillStyle = BRAND.navy;
+    ctx.fillStyle = design.logoBlockColor;
     ctx.fillRect(32, 24, 132, 108);
-    ctx.fillStyle = 'white';
+    ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 26px Arial';
-    ctx.fillText('event', 48, 82);
-    ctx.fillStyle = BRAND.gold;
-    ctx.font = 'bold 18px Arial';
+    ctx.fillText(design.logoText.replace('Z', ''), 48, 82);
+    ctx.fillStyle = design.accentColor;
     ctx.fillText('Z', 126, 82);
 
-    ctx.fillStyle = '#000000';
+    ctx.fillStyle = design.textColor;
     ctx.font = 'bold 18px Arial';
     ctx.textAlign = 'right';
     ctx.fillText('START DATE', canvas.width - 38, 58);
@@ -100,24 +129,24 @@ export default function EventPassCard({ participant, event, onPrint }: EventPass
     ctx.fillText(`${event.eventDate || ''}, ${event.eventTime || ''}`, canvas.width - 38, 92);
     ctx.textAlign = 'left';
 
-    ctx.fillStyle = BRAND.navy;
+    ctx.fillStyle = design.primaryColor;
     ctx.font = '900 60px Arial';
     ctx.fillText('EVENT', 292, 220);
-    ctx.fillStyle = BRAND.gold;
+    ctx.fillStyle = design.accentColor;
     ctx.fillText('Z', 552, 220);
-    ctx.fillStyle = BRAND.navy;
+    ctx.fillStyle = design.mutedTextColor;
     ctx.font = 'bold 18px Arial';
-    ctx.fillText(BRAND.slogan, 292, 258);
+    ctx.fillText(design.slogan, 292, 258);
 
-    ctx.fillStyle = '#000000';
+    ctx.fillStyle = design.textColor;
     ctx.font = 'bold 20px Arial';
     ctx.fillText('EVENT', 36, 382);
     ctx.font = '36px Arial';
-    drawText(ctx, event.eventName || 'Event', 36, 426, 420, 40);
+    wrapCanvasText(ctx, event.eventName || 'Event', 36, 426, 420, 40);
     ctx.font = 'bold 20px Arial';
     ctx.fillText('ATTENDEE', 520, 382);
     ctx.font = '36px Arial';
-    drawText(ctx, participant.fullName, 520, 426, 292, 40);
+    wrapCanvasText(ctx, participant.fullName, 520, 426, 292, 40);
     ctx.font = 'bold 20px Arial';
     ctx.fillText('TICKET', 36, 545);
     ctx.font = '36px Arial';
@@ -129,20 +158,20 @@ export default function EventPassCard({ participant, event, onPrint }: EventPass
 
     const qrImg = new Image();
     qrImg.onload = () => {
-      const qrSize = 300;
+      const qrSize = Math.max(240, Math.min(340, Number(design.qrSize) + 90));
       const qrX = (canvas.width - qrSize) / 2;
       const qrY = 820;
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = design.qrFrameColor;
       ctx.beginPath();
       ctx.roundRect(qrX - 30, qrY - 30, qrSize + 60, qrSize + 92, 10);
       ctx.fill();
       ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
-      ctx.fillStyle = '#000000';
+      ctx.fillStyle = design.textColor;
       ctx.font = '28px Arial';
       ctx.textAlign = 'center';
       ctx.fillText(participant.passId, canvas.width / 2, qrY + qrSize + 46);
       ctx.font = 'bold 14px Arial';
-      ctx.fillStyle = '#4b5563';
+      ctx.fillStyle = design.mutedTextColor;
       ctx.fillText(event.accessInstruction || 'Present this QR code at the entrance.', canvas.width / 2, 1194);
       const link = document.createElement('a');
       link.download = `EVENTZ_Ticket_Pass_${participant.fullName.replace(/\s+/g, '_')}.png`;
@@ -152,56 +181,49 @@ export default function EventPassCard({ participant, event, onPrint }: EventPass
     qrImg.src = qrCodeUrl;
   };
 
+  const radius = `${Number(design.cornerRadius) || 32}px`;
+
   return (
     <div className="flex flex-col items-center gap-4 w-full max-w-md mx-auto">
-      <div ref={cardRef} className="w-full rounded-[2rem] overflow-hidden shadow-2xl border border-slate-300 bg-[#d8dcdf] text-left relative" style={{ fontFamily: 'Inter, sans-serif' }}>
-        <div className="h-32 bg-[#d8dcdf] relative px-6 pt-4">
-          <div className="absolute left-1/2 -translate-x-1/2 -top-5 w-20 h-20 rounded-full bg-white"></div>
-          <div className="w-24 h-24 flex items-center justify-center" style={{ background: event.primaryColor || BRAND.navy }}>
-            <div className="text-white font-black text-xl tracking-[-0.08em]">event<span style={{ color: event.accentColor || BRAND.gold }}>Z</span></div>
+      <div ref={cardRef} className="w-full overflow-hidden shadow-2xl border border-slate-300 text-left relative transition-all duration-300" style={{ fontFamily: design.fontStyle === 'classic' ? 'Georgia, serif' : 'Inter, sans-serif', backgroundColor: design.backgroundColor, borderRadius: radius }}>
+        <div className="h-32 relative px-6 pt-4" style={{ backgroundColor: design.topBarColor }}>
+          {design.showTopNotch && <div className="absolute left-1/2 -translate-x-1/2 -top-5 w-20 h-20 rounded-full bg-white"></div>}
+          <div className="w-24 h-24 flex items-center justify-center relative overflow-hidden" style={{ background: design.logoBlockColor }}>
+            <BrandIcon className="absolute text-white/20 -right-3 -bottom-3" size={54} />
+            <div className="text-white font-black text-xl tracking-[-0.08em] relative z-10">{design.logoText.replace('Z', '')}<span style={{ color: design.accentColor }}>Z</span></div>
           </div>
-          <div className="absolute right-6 top-6 text-right text-slate-950">
+          <div className="absolute right-6 top-6 text-right" style={{ color: design.textColor }}>
             <div className="text-xs font-black tracking-wider uppercase">Start Date</div>
             <div className="text-xl font-medium">{event.eventDate || 'Event Date'}</div>
-            <div className="text-sm font-semibold text-slate-700">{event.eventTime || 'Event Time'}</div>
+            <div className="text-sm font-semibold" style={{ color: design.mutedTextColor }}>{event.eventTime || 'Event Time'}</div>
           </div>
         </div>
 
-        <div className="bg-white px-7 py-7 flex items-center gap-5">
-          <div className="w-24 h-24 rounded-full border-[14px] border-[#123064] relative shrink-0">
-            <div className="absolute inset-[-14px] rounded-full border-[14px] border-transparent border-r-[#20aeea] rotate-45"></div>
+        {design.showBrandPanel && (
+          <div className="px-7 py-7 flex items-center gap-5" style={{ backgroundColor: design.brandPanelColor }}>
+            <div className="w-24 h-24 rounded-full border-[14px] relative shrink-0" style={{ borderColor: design.primaryColor }}>
+              <div className="absolute inset-[-14px] rounded-full border-[14px] border-transparent rotate-45" style={{ borderRightColor: design.accentColor }}></div>
+            </div>
+            <div>
+              <div className="text-5xl font-light tracking-[0.08em] leading-none" style={{ color: design.primaryColor }}>EVENT<span className="font-bold" style={{ color: design.accentColor }}>Z</span></div>
+              <div className="text-[11px] font-bold tracking-[0.18em] uppercase mt-2" style={{ color: design.mutedTextColor }}>{design.slogan}</div>
+            </div>
           </div>
-          <div>
-            <div className="text-5xl font-light tracking-[0.08em] leading-none text-[#123064]">EVENT<span className="font-bold" style={{ color: event.accentColor || BRAND.gold }}>Z</span></div>
-            <div className="text-[11px] font-bold tracking-[0.18em] uppercase text-slate-500 mt-2">{BRAND.slogan}</div>
-          </div>
-        </div>
+        )}
 
-        <div className="px-7 py-6 grid grid-cols-2 gap-x-8 gap-y-7 min-h-[320px]">
-          <div>
-            <div className="text-sm font-black uppercase tracking-wider text-black">Event</div>
-            <div className="text-2xl font-medium text-black leading-tight mt-1">{event.eventName || 'Event'}</div>
-          </div>
-          <div>
-            <div className="text-sm font-black uppercase tracking-wider text-black">Attendee</div>
-            <div className="text-2xl font-medium text-black leading-tight mt-1">{participant.fullName}</div>
-          </div>
-          <div>
-            <div className="text-sm font-black uppercase tracking-wider text-black">Ticket</div>
-            <div className="text-2xl font-medium text-black leading-tight mt-1">{participant.category || event.passTitle || 'Attendee'}</div>
-          </div>
-          <div>
-            <div className="text-sm font-black uppercase tracking-wider text-black">Pass ID</div>
-            <div className="text-lg font-mono font-bold text-black mt-2 break-all">{participant.passId}</div>
-          </div>
+        <div className="px-7 py-6 grid grid-cols-2 gap-x-8 gap-y-7 min-h-[320px]" style={{ color: design.textColor }}>
+          <div><div className="text-sm font-black uppercase tracking-wider">Event</div><div className="text-2xl font-medium leading-tight mt-1">{event.eventName || 'Event'}</div></div>
+          <div><div className="text-sm font-black uppercase tracking-wider">Attendee</div><div className="text-2xl font-medium leading-tight mt-1">{participant.fullName}</div></div>
+          <div><div className="text-sm font-black uppercase tracking-wider">Ticket</div><div className="text-2xl font-medium leading-tight mt-1">{participant.category || event.passTitle || 'Attendee'}</div></div>
+          <div><div className="text-sm font-black uppercase tracking-wider">Pass ID</div><div className="text-lg font-mono font-bold mt-2 break-all">{participant.passId}</div></div>
         </div>
 
         <div className="pb-8 flex flex-col items-center gap-2">
-          <div className="bg-white rounded-lg p-5 shadow-sm">
-            {qrCodeUrl ? <img src={qrCodeUrl} alt={`QR code for ${participant.fullName}`} className="w-52 h-52 object-contain" /> : <div className="w-52 h-52 bg-slate-100 animate-pulse rounded-lg" />}
-            <div className="font-mono text-center text-xl mt-2 text-black tracking-wide">{participant.passId}</div>
+          <div className="rounded-lg p-5 shadow-sm" style={{ backgroundColor: design.qrFrameColor }}>
+            {qrCodeUrl ? <img src={qrCodeUrl} alt={`QR code for ${participant.fullName}`} style={{ width: Number(design.qrSize), height: Number(design.qrSize) }} className="object-contain" /> : <div className="w-52 h-52 bg-slate-100 animate-pulse rounded-lg" />}
+            <div className="font-mono text-center text-xl mt-2 tracking-wide" style={{ color: design.textColor }}>{participant.passId}</div>
           </div>
-          <p className="px-8 text-center text-[11px] text-slate-600 font-semibold">{event.accessInstruction || 'Present this QR code at the entrance for verification.'}</p>
+          <p className="px-8 text-center text-[11px] font-semibold" style={{ color: design.mutedTextColor }}>{event.accessInstruction || 'Present this QR code at the entrance for verification.'}</p>
         </div>
       </div>
 
