@@ -9,6 +9,7 @@ import { Camera, RefreshCw, AlertCircle, Search, HelpCircle } from 'lucide-react
 
 interface ScannerComponentProps {
   onScanResult: (passId: string) => void;
+  participants?: unknown[];
 }
 
 interface CameraDeviceInfo {
