@@ -5,7 +5,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
-import { Camera, RefreshCw, AlertCircle, Search, HelpCircle } from 'lucide-react';
+import { Camera, RefreshCw, AlertCircle, Search, HelpCircle, Play, SwitchCamera } from 'lucide-react';
 
 interface ScannerComponentProps {
   onScanResult: (passId: string) => void;
@@ -23,7 +23,9 @@ export default function ScannerComponent({ onScanResult }: ScannerComponentProps
   const [cameras, setCameras] = useState<CameraDeviceInfo[]>([]);
   const [selectedCameraId, setSelectedCameraId] = useState<string>('');
   const [scanError, setScanError] = useState<string>('');
-  const [isCameraLoading, setIsCameraLoading] = useState<boolean>(true);
+  const [isCameraLoading, setIsCameraLoading] = useState<boolean>(false);
+  const [cameraStarted, setCameraStarted] = useState<boolean>(false);
+  const [useFrontCamera, setUseFrontCamera] = useState<boolean>(false);
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const isStartingRef = useRef(false);
@@ -44,9 +46,7 @@ export default function ScannerComponent({ onScanResult }: ScannerComponentProps
 
     try {
       const state = (scanner as any).getState?.();
-      if (state === 2) {
-        await scanner.stop();
-      }
+      if (state === 2) await scanner.stop();
     } catch (err) {
       console.warn('Camera scanner stop warning:', err);
     }
@@ -58,112 +58,7 @@ export default function ScannerComponent({ onScanResult }: ScannerComponentProps
     }
 
     scannerRef.current = null;
-  };
-
-  const choosePreferredCamera = (deviceList: CameraDeviceInfo[]) => {
-    if (deviceList.length === 0) return '';
-
-    const backCamera = deviceList.find((cam) =>
-      /back|rear|environment|arrière/i.test(cam.label || '')
-    );
-
-    return backCamera?.id || deviceList[0].id;
-  };
-
-  const loadCameras = async () => {
-    setIsCameraLoading(true);
-    setScanError('');
-
-    try {
-      const devices = await Html5Qrcode.getCameras();
-      const mapped = devices.map((camera, index) => ({
-        id: camera.id,
-        label: camera.label || `Camera ${index + 1}`
-      }));
-
-      setCameras(mapped);
-
-      if (mapped.length === 0) {
-        setScanError('No camera was detected on this device. You can still verify the pass using Manual ID.');
-        setActiveTab('manual');
-        return;
-      }
-
-      setSelectedCameraId((current) => current || choosePreferredCamera(mapped));
-    } catch (err: any) {
-      console.error('Camera detection failed:', err);
-      setScanError('Camera permission is not available or no camera could be accessed. Allow camera permission in the browser, or use Manual ID.');
-      setActiveTab('manual');
-    } finally {
-      setIsCameraLoading(false);
-    }
-  };
-
-  const startScanner = async (cameraId: string) => {
-    if (!cameraId || activeTab !== 'camera' || isStartingRef.current) return;
-
-    isStartingRef.current = true;
-    setScanError('');
-
-    try {
-      await stopScanner();
-
-      const scanner = new Html5Qrcode('reader-container');
-      scannerRef.current = scanner;
-
-      await scanner.start(
-        cameraId,
-        {
-          fps: 10,
-          qrbox: { width: 250, height: 250 },
-          aspectRatio: 1.0,
-        },
-        (decodedText) => {
-          const passId = normalizePassId(decodedText);
-          const now = Date.now();
-
-          if (lastScanRef.current.value === passId && now - lastScanRef.current.time < 2500) {
-            return;
-          }
-
-          lastScanRef.current = { value: passId, time: now };
-          onScanResult(passId);
-        },
-        () => {
-          // Silent frame-level scan failures are normal while camera is searching for a QR code.
-        }
-      );
-    } catch (err: any) {
-      console.error('Camera scanner start failed:', err);
-      setScanError(err?.message || 'Unable to start this camera. Select another camera or use Manual ID.');
-    } finally {
-      isStartingRef.current = false;
-    }
-  };
-
-  useEffect(() => {
-    loadCameras();
-
-    return () => {
-      stopScanner();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === 'camera' && selectedCameraId) {
-      startScanner(selectedCameraId);
-    } else {
-      stopScanner();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, selectedCameraId]);
-
-  const handleManualSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (manualId.trim()) {
-      onScanResult(manualId.trim().toUpperCase());
-    }
+    setCameraStarted(false);
   };
 
   const getCameraDisplayName = (camera: CameraDeviceInfo, index: number) => {
@@ -173,26 +68,139 @@ export default function ScannerComponent({ onScanResult }: ScannerComponentProps
     return label;
   };
 
+  const choosePreferredCamera = (deviceList: CameraDeviceInfo[], front = false) => {
+    if (deviceList.length === 0) return '';
+    const frontCam = deviceList.find((cam) => /front|user|facetime|avant/i.test(cam.label || ''));
+    const backCam = deviceList.find((cam) => /back|rear|environment|arrière/i.test(cam.label || ''));
+    if (front && frontCam) return frontCam.id;
+    return backCam?.id || deviceList[0].id;
+  };
+
+  const refreshCameraList = async () => {
+    try {
+      const devices = await Html5Qrcode.getCameras();
+      const mapped = devices.map((camera, index) => ({
+        id: camera.id,
+        label: camera.label || `Camera ${index + 1}`
+      }));
+      setCameras(mapped);
+      setSelectedCameraId((current) => current || choosePreferredCamera(mapped, useFrontCamera));
+      return mapped;
+    } catch (err) {
+      console.warn('Camera listing warning:', err);
+      return [];
+    }
+  };
+
+  const startScanner = async (cameraId?: string, preferFront = useFrontCamera) => {
+    if (activeTab !== 'camera' || isStartingRef.current) return;
+
+    isStartingRef.current = true;
+    setIsCameraLoading(true);
+    setScanError('');
+
+    try {
+      await stopScanner();
+
+      const scanner = new Html5Qrcode('reader-container', { verbose: false });
+      scannerRef.current = scanner;
+
+      const scanConfig = {
+        fps: 10,
+        qrbox: { width: 250, height: 250 },
+        aspectRatio: 1.0,
+        disableFlip: false,
+      };
+
+      const cameraConstraint: any = cameraId
+        ? cameraId
+        : { facingMode: preferFront ? 'user' : { ideal: 'environment' } };
+
+      await scanner.start(
+        cameraConstraint,
+        scanConfig,
+        async (decodedText) => {
+          const passId = normalizePassId(decodedText);
+          const now = Date.now();
+          if (lastScanRef.current.value === passId && now - lastScanRef.current.time < 2500) return;
+          lastScanRef.current = { value: passId, time: now };
+          onScanResult(passId);
+        },
+        () => {
+          // Frame-level scan failures are normal while searching for a QR code.
+        }
+      );
+
+      setCameraStarted(true);
+      const updatedCameras = await refreshCameraList();
+      if (!cameraId && updatedCameras.length > 0) {
+        setSelectedCameraId(choosePreferredCamera(updatedCameras, preferFront));
+      }
+    } catch (err: any) {
+      console.error('Camera scanner start failed:', err);
+      setCameraStarted(false);
+      setScanError(
+        err?.message ||
+        'Unable to start the camera. On phones, open the live HTTPS app in Chrome/Safari, allow camera permission, then try again.'
+      );
+    } finally {
+      isStartingRef.current = false;
+      setIsCameraLoading(false);
+    }
+  };
+
+  const handleStartCamera = () => {
+    startScanner(selectedCameraId || undefined, useFrontCamera);
+  };
+
+  const handleCameraSwitch = async () => {
+    const nextUseFront = !useFrontCamera;
+    setUseFrontCamera(nextUseFront);
+    const cameraId = choosePreferredCamera(cameras, nextUseFront);
+    setSelectedCameraId(cameraId);
+    await startScanner(cameraId || undefined, nextUseFront);
+  };
+
+  useEffect(() => {
+    refreshCameraList();
+    return () => {
+      stopScanner();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (cameraStarted && selectedCameraId) {
+      startScanner(selectedCameraId, useFrontCamera);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCameraId]);
+
+  const handleManualSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    const normalized = manualId.trim().toUpperCase();
+    if (normalized) onScanResult(normalized);
+  };
+
   return (
-    <div className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden w-full max-w-lg mx-auto">
-      <div className="flex border-b border-slate-100 bg-slate-50/50 p-2 gap-1">
+    <div className="apple-card rounded-3xl overflow-hidden w-full max-w-lg mx-auto animate-fade-in">
+      <div className="flex border-b border-slate-100/80 bg-white/60 p-2 gap-1">
         <button
           onClick={() => setActiveTab('camera')}
-          className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold transition-all ${
-            activeTab === 'camera'
-              ? 'bg-slate-900 text-white shadow'
-              : 'text-slate-600 hover:bg-slate-100'
+          className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold ${
+            activeTab === 'camera' ? 'bg-slate-950 text-white shadow' : 'text-slate-600 hover:bg-white'
           }`}
         >
           <Camera size={14} />
           Camera Scanner
         </button>
         <button
-          onClick={() => setActiveTab('manual')}
-          className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold transition-all ${
-            activeTab === 'manual'
-              ? 'bg-slate-900 text-white shadow'
-              : 'text-slate-600 hover:bg-slate-100'
+          onClick={() => {
+            setActiveTab('manual');
+            stopScanner();
+          }}
+          className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold ${
+            activeTab === 'manual' ? 'bg-slate-950 text-white shadow' : 'text-slate-600 hover:bg-white'
           }`}
         >
           <Search size={14} />
@@ -214,101 +222,92 @@ export default function ScannerComponent({ onScanResult }: ScannerComponentProps
             )}
 
             {cameras.length > 1 && (
-              <div className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-3 space-y-2">
-                <label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">
-                  Select Camera
-                </label>
+              <div className="w-full bg-slate-50/80 border border-slate-100 rounded-2xl p-3 space-y-2">
+                <label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">Select Camera</label>
                 <select
                   value={selectedCameraId}
                   onChange={(e) => setSelectedCameraId(e.target.value)}
                   className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900"
                 >
                   {cameras.map((camera, index) => (
-                    <option key={camera.id} value={camera.id}>
-                      {getCameraDisplayName(camera, index)}
-                    </option>
+                    <option key={camera.id} value={camera.id}>{getCameraDisplayName(camera, index)}</option>
                   ))}
                 </select>
-                <p className="text-[10px] text-slate-400 leading-relaxed">
-                  On phones, choose the back camera for scanning participant QR codes. You can switch to the front camera when needed.
-                </p>
               </div>
             )}
 
-            <div className="w-full aspect-square max-w-[340px] bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 relative shadow-inner">
+            <div className="w-full aspect-square max-w-[340px] bg-slate-950 rounded-[2rem] overflow-hidden border border-slate-800 relative shadow-2xl">
               <div id="reader-container" className="w-full h-full"></div>
 
-              {isCameraLoading && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-white bg-slate-950">
-                  <RefreshCw size={22} className="animate-spin" />
-                  <span className="text-xs font-semibold">Detecting camera...</span>
+              {!cameraStarted && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-white bg-slate-950/95 p-6 text-center">
+                  <div className="w-16 h-16 rounded-3xl bg-yellow-400 text-slate-950 flex items-center justify-center shadow-lg animate-soft-pulse">
+                    <Camera size={28} />
+                  </div>
+                  <div>
+                    <p className="font-black text-sm">Ready to scan real passes</p>
+                    <p className="text-slate-400 text-xs mt-1 leading-relaxed">Tap start to allow camera access. On phones, the back camera is preferred for QR scanning.</p>
+                  </div>
+                  <button
+                    onClick={handleStartCamera}
+                    disabled={isCameraLoading}
+                    className="bg-yellow-400 hover:bg-yellow-300 disabled:opacity-60 text-slate-950 font-black px-5 py-3 rounded-2xl text-xs flex items-center gap-2"
+                  >
+                    {isCameraLoading ? <RefreshCw size={14} className="animate-spin" /> : <Play size={14} />}
+                    Start Camera Scanner
+                  </button>
                 </div>
               )}
 
-              <div className="absolute inset-0 pointer-events-none border-[30px] border-black/30 flex items-center justify-center">
-                <div className="w-full h-full border-2 border-dashed border-yellow-500 rounded-lg relative">
-                  <div className="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-yellow-500 -mt-1 -ml-1"></div>
-                  <div className="absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 border-yellow-500 -mt-1 -mr-1"></div>
-                  <div className="absolute bottom-0 left-0 w-4 h-4 border-b-4 border-l-4 border-yellow-500 -mb-1 -ml-1"></div>
-                  <div className="absolute bottom-0 right-0 w-4 h-4 border-b-4 border-r-4 border-yellow-500 -mb-1 -mr-1"></div>
+              {cameraStarted && (
+                <div className="absolute inset-0 pointer-events-none border-[30px] border-black/30 flex items-center justify-center">
+                  <div className="w-full h-full border-2 border-dashed border-yellow-500 rounded-lg relative">
+                    <div className="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-yellow-500 -mt-1 -ml-1"></div>
+                    <div className="absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 border-yellow-500 -mt-1 -mr-1"></div>
+                    <div className="absolute bottom-0 left-0 w-4 h-4 border-b-4 border-l-4 border-yellow-500 -mb-1 -ml-1"></div>
+                    <div className="absolute bottom-0 right-0 w-4 h-4 border-b-4 border-r-4 border-yellow-500 -mb-1 -mr-1"></div>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
-            <div className="text-center text-slate-500 text-xs flex flex-col items-center gap-2 justify-center py-2">
-              <div className="flex items-center gap-1.5">
-                <Camera size={13} />
-                <span>Point the camera at the participant's QR code.</span>
-              </div>
-              <button
-                onClick={loadCameras}
-                className="text-[10px] font-bold uppercase tracking-wider text-slate-700 hover:text-slate-950 flex items-center gap-1"
-              >
-                <RefreshCw size={12} />
-                Refresh Cameras
+            <div className="w-full grid grid-cols-2 gap-2">
+              <button onClick={handleCameraSwitch} className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-3 rounded-2xl text-xs flex items-center justify-center gap-2">
+                <SwitchCamera size={14} />
+                Front / Back
+              </button>
+              <button onClick={() => refreshCameraList()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-3 rounded-2xl text-xs flex items-center justify-center gap-2">
+                <RefreshCw size={14} />
+                Detect Cameras
               </button>
             </div>
           </div>
         )}
 
         {activeTab === 'manual' && (
-          <form onSubmit={handleManualSearch} className="space-y-4">
+          <form onSubmit={handleManualSearch} className="space-y-4 animate-fade-in">
             <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">
-                ENTER PASS ID MANUALLY
-              </label>
+              <label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">ENTER PASS ID MANUALLY</label>
               <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-400 font-mono text-sm">
-                    🎫
-                  </span>
-                  <input
-                    type="text"
-                    value={manualId}
-                    onChange={(e) => setManualId(e.target.value)}
-                    placeholder="e.g. ETSN-2026-0001-X7K9"
-                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-all uppercase"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  disabled={!manualId.trim()}
-                  className="bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white font-bold px-6 py-3 rounded-xl text-xs transition-all tracking-wide"
-                >
+                <input
+                  type="text"
+                  value={manualId}
+                  onChange={(e) => setManualId(e.target.value.toUpperCase())}
+                  placeholder="e.g. ETSN-2026-0001-X7K9"
+                  className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-slate-900 uppercase"
+                />
+                <button type="submit" disabled={!manualId.trim()} className="bg-slate-950 hover:bg-slate-800 disabled:opacity-50 text-white font-bold px-6 py-3 rounded-xl text-xs">
                   Verify
                 </button>
               </div>
             </div>
 
             <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 text-[11px] text-slate-500 leading-relaxed">
-              <p className="font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
-                <HelpCircle size={13} className="text-slate-400" />
-                Manual verification fallback
-              </p>
+              <p className="font-semibold text-slate-700 mb-1 flex items-center gap-1.5"><HelpCircle size={13} className="text-slate-400" /> Reliable manual fallback</p>
               <ul className="list-disc pl-4 space-y-1">
-                <li>Use this only if the QR code is hard to read, the participant's phone brightness is too low, or camera permission fails.</li>
-                <li>Pass IDs are case-insensitive and can be typed exactly as seen on the pass.</li>
-                <li>Double-check characters like <code className="bg-slate-200/60 px-1 py-0.5 rounded font-mono text-[10px] text-slate-700">O</code> and <code className="bg-slate-200/60 px-1 py-0.5 rounded font-mono text-[10px] text-slate-700">0</code>.</li>
+                <li>Manual ID uses the same backend verification and duplicate-entry protection as QR scanning.</li>
+                <li>Type the pass ID exactly as shown. It is automatically converted to uppercase.</li>
+                <li>Use this if a QR code is damaged, the participant phone brightness is low, or camera access fails.</li>
               </ul>
             </div>
           </form>
