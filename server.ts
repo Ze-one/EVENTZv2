@@ -11,6 +11,7 @@ dotenv.config({ path: ['.env.local', '.env'] });
 // `vite` is imported dynamically during development only to avoid loading
 // native build-time dependencies in the serverless runtime on Vercel.
 import nodemailer from 'nodemailer';
+import sgMail from '@sendgrid/mail';
 import QRCode from 'qrcode';
 import { db } from './src/server/db.js';
 import { PassStatus, ScanResult, UserRole } from './src/types.js';
@@ -526,9 +527,36 @@ async function startServer() {
       </html>
     `;
 
-    // Prefer explicit Mailjet SMTP credentials if provided
+    const useSendGrid = !!process.env.SENDGRID_API_KEY;
     const useMailjet = !!(process.env.MAILJET_API_KEY && process.env.MAILJET_SECRET);
-    if (isSmtpConfigured || useMailjet) {
+
+    if (useSendGrid) {
+      try {
+        sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
+        const fromAddress = process.env.SMTP_FROM || process.env.MAILJET_SENDER || process.env.SENDGRID_FROM || 'abdel.samad@etsntech.org';
+        const sendResult = await sgMail.send({
+          to: participant.email,
+          from: fromAddress,
+          replyTo: fromAddress,
+          subject,
+          html: htmlContent,
+          attachments: [
+            {
+              filename: 'pass-qr.png',
+              content: qrDataUrl.split('base64,')[1],
+              encoding: 'base64',
+              cid: 'qrCodeImage'
+            }
+          ]
+        });
+
+        console.log('SendGrid send result:', sendResult[0]);
+        await db.updateEmailLogStatus(logId, 'Delivered');
+      } catch (err: any) {
+        console.error('SendGrid sending failed:', err);
+        await db.updateEmailLogStatus(logId, 'Failed', err.message || 'SendGrid delivery failed');
+      }
+    } else if (isSmtpConfigured || useMailjet) {
       try {
         const transporterOptions: any = {};
 
