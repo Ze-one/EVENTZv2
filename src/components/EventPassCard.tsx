@@ -70,6 +70,53 @@ function loadCanvasImage(src: string) {
   });
 }
 
+function EventzEmblem({ color, className = '' }: { color: string; className?: string }) {
+  return (
+    <svg viewBox="0 0 500 500" className={className} aria-hidden="true">
+      <g fill={color}>
+        <polygon points="250,170 320,210 320,290 250,330 180,290 180,210" />
+        {[0, 45, 90, 135, 180, 225, 270, 315].map((angle) => (
+          <path
+            key={angle}
+            d="M215 42c20-12 48-12 70 0l74 32c21 9 31 33 22 54l-9 22c-8 20-30 31-51 24l-70-24-70 24c-21 7-43-4-51-24l-9-22c-9-21 1-45 22-54l72-32Z"
+            transform={`rotate(${angle} 250 250)`}
+          />
+        ))}
+      </g>
+    </svg>
+  );
+}
+
+function drawCanvasEmblem(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number, color: string) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  const scale = size / 500;
+  ctx.scale(scale, scale);
+  ctx.translate(-250, -250);
+  ctx.fillStyle = color;
+
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const angle = Math.PI / 6 + (Math.PI * 2 * i) / 6;
+    const x = 250 + 78 * Math.cos(angle);
+    const y = 250 + 78 * Math.sin(angle);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fill();
+
+  for (let i = 0; i < 8; i++) {
+    ctx.save();
+    ctx.translate(250, 250);
+    ctx.rotate((Math.PI * 2 * i) / 8);
+    ctx.beginPath();
+    ctx.roundRect(-42, -222, 84, 125, 22);
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
 export default function EventPassCard({ participant, event, onPrint }: EventPassCardProps) {
   const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
   const cardRef = useRef<HTMLDivElement>(null);
@@ -169,6 +216,7 @@ export default function EventPassCard({ participant, event, onPrint }: EventPass
     ctx.fillText(`${event.eventDate || ''}, ${event.eventTime || ''}`, canvas.width - 38, 92);
     ctx.textAlign = 'left';
 
+    drawCanvasEmblem(ctx, 120, 235, 122, design.accentColor);
     ctx.fillStyle = design.primaryColor;
     ctx.font = '900 60px Arial';
     ctx.fillText('EVENT', 292, 220);
@@ -247,9 +295,7 @@ export default function EventPassCard({ participant, event, onPrint }: EventPass
 
         {design.showBrandPanel && (
           <div className="px-7 py-7 flex items-center gap-5" style={{ backgroundColor: design.brandPanelColor }}>
-            <div className="w-24 h-24 rounded-full border-[14px] relative shrink-0" style={{ borderColor: design.primaryColor }}>
-              <div className="absolute inset-[-14px] rounded-full border-[14px] border-transparent rotate-45" style={{ borderRightColor: design.accentColor }}></div>
-            </div>
+            <EventzEmblem color={design.accentColor} className="w-24 h-24 shrink-0 drop-shadow-sm" />
             <div>
               <div className="text-5xl font-light tracking-[0.08em] leading-none" style={{ color: design.primaryColor }}>EVENT<span className="font-bold" style={{ color: design.accentColor }}>Z</span></div>
               <div className="text-[11px] font-bold tracking-[0.18em] uppercase mt-2" style={{ color: design.mutedTextColor }}>{design.slogan}</div>
