@@ -700,10 +700,18 @@ async function startServer() {
       status: 'Sending'
     });
 
-    // Attempt to send asynchronously and return immediate response
-    sendEventPassEmail(participant, event, log.id, customMessage).catch(console.error);
-
-    res.json({ success: true, log, message: 'Email send initiated; check /api/email-logs for status.' });
+    // Attempt to send and wait for result so serverless function does not exit
+    try {
+      await sendEventPassEmail(participant, event, log.id, customMessage);
+      const logs = await db.getEmailLogs();
+      const updated = logs.find(l => l.id === log.id) || log;
+      res.json({ success: true, log: updated, message: 'Email send completed (or status updated).' });
+    } catch (err: any) {
+      console.error('Email test failed:', err);
+      const logs = await db.getEmailLogs();
+      const updated = logs.find(l => l.id === log.id) || log;
+      res.status(500).json({ success: false, error: err?.message || 'Send failed', log: updated });
+    }
   });
 
 
