@@ -2,6 +2,7 @@ import sgMail from '@sendgrid/mail';
 import nodemailer from 'nodemailer';
 import QRCode from 'qrcode';
 import { db } from '../src/server/db.js';
+import { ETSNTECH_LOGO_DATA_URL } from '../src/assets/etsntech-logo.js';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -92,7 +93,10 @@ function buildEmailHtml(participant: any, event: any, customMessage: string | un
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Your Event Entrance Pass</title></head>
 <body style="font-family:Arial,Helvetica,sans-serif;background:#f8fafc;margin:0;padding:0;">
   <div style="max-width:520px;margin:32px auto;background:#fff;border-radius:24px;overflow:hidden;border:1px solid #e2e8f0;box-shadow:0 10px 30px rgba(15,23,42,.08);">
-    <div style="background:${primaryColor};color:#fff;text-align:center;padding:30px 24px;">
+    <div style="background:${primaryColor};color:#fff;text-align:center;padding:26px 24px 30px;">
+      <div style="background:#ffffff;border-radius:16px;padding:8px 14px;display:inline-block;margin-bottom:14px;">
+        <img src="cid:brandLogo" width="180" alt="ETS N-TECH" style="display:block;width:180px;height:auto;" />
+      </div>
       <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:2px;opacity:.9;">${escapeHtml(event?.organizerName || 'ETS N-TECH')}</div>
       <div style="display:inline-block;margin:14px 0 12px;padding:5px 12px;border-radius:8px;background:rgba(255,255,255,.14);color:${accentColor};font-size:10px;font-weight:900;letter-spacing:1px;text-transform:uppercase;">${escapeHtml(event?.passTitle || 'EVENT PASS')}</div>
       <h1 style="font-size:21px;line-height:1.3;margin:0 0 8px;font-weight:900;">${escapeHtml(event?.eventName || 'Event')}</h1>
@@ -134,6 +138,8 @@ export async function sendParticipantPassEmail(req: any, participant: any, event
     color: { dark: '#0f172a', light: '#ffffff' }
   });
   const qrBase64 = qrDataUrl.split('base64,')[1];
+  const logoBase64 = ETSNTECH_LOGO_DATA_URL.split('base64,')[1];
+  const logoMime = ETSNTECH_LOGO_DATA_URL.match(/^data:(.*?);base64,/)?.[1] || 'image/webp';
   const subject = `Your Entrance Pass: ${event?.eventName || 'Event'}`;
   const sender = getSender(event);
   const html = buildEmailHtml(participant, event, customMessage, verifyUrl);
@@ -147,13 +153,22 @@ export async function sendParticipantPassEmail(req: any, participant: any, event
         replyTo: sender,
         subject,
         html,
-        attachments: [{
-          content: qrBase64,
-          filename: 'event-pass-qr.png',
-          type: 'image/png',
-          disposition: 'inline',
-          content_id: 'qrCodeImage'
-        }]
+        attachments: [
+          {
+            content: logoBase64,
+            filename: 'etsntech-logo.webp',
+            type: logoMime,
+            disposition: 'inline',
+            content_id: 'brandLogo'
+          },
+          {
+            content: qrBase64,
+            filename: 'event-pass-qr.png',
+            type: 'image/png',
+            disposition: 'inline',
+            content_id: 'qrCodeImage'
+          }
+        ]
       } as any);
 
       const sendGridResult = result as any;
@@ -180,11 +195,18 @@ export async function sendParticipantPassEmail(req: any, participant: any, event
         to: recipient,
         subject,
         html,
-        attachments: [{
-          filename: 'event-pass-qr.png',
-          content: Buffer.from(qrBase64, 'base64'),
-          cid: 'qrCodeImage'
-        }]
+        attachments: [
+          {
+            filename: 'etsntech-logo.webp',
+            content: Buffer.from(logoBase64, 'base64'),
+            cid: 'brandLogo'
+          },
+          {
+            filename: 'event-pass-qr.png',
+            content: Buffer.from(qrBase64, 'base64'),
+            cid: 'qrCodeImage'
+          }
+        ]
       });
 
       await db.updateEmailLogStatus(logId, 'Delivered');
