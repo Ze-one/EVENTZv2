@@ -152,7 +152,7 @@ export async function sendParticipantPassEmail(req: any, participant: any, event
           filename: 'event-pass-qr.png',
           type: 'image/png',
           disposition: 'inline',
-          contentId: 'qrCodeImage'
+          content_id: 'qrCodeImage'
         }]
       } as any);
 
