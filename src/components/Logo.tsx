@@ -15,27 +15,34 @@ interface LogoProps {
 
 export default function Logo({ className = '', size = 'md', onClick }: LogoProps) {
   const sizes = {
-    sm: { width: 140, height: 62 },
-    md: { width: 190, height: 84 },
-    lg: { width: 250, height: 111 },
-    xl: { width: 340, height: 150 },
+    sm: { boxWidth: 150, boxHeight: 46, imageWidth: 124 },
+    md: { boxWidth: 210, boxHeight: 64, imageWidth: 176 },
+    lg: { boxWidth: 270, boxHeight: 82, imageWidth: 230 },
+    xl: { boxWidth: 360, boxHeight: 110, imageWidth: 310 },
   };
 
   const currentSize = sizes[size];
 
   return (
     <div
-      className={`inline-flex items-center select-none ${onClick ? 'cursor-pointer' : ''} ${className}`}
+      className={`inline-flex items-center justify-center rounded-2xl bg-white border border-slate-200/70 shadow-sm overflow-hidden select-none shrink-0 ${onClick ? 'cursor-pointer' : ''} ${className}`}
       onClick={onClick}
       aria-label="ETS N-TECH"
+      style={{
+        width: `${currentSize.boxWidth}px`,
+        height: `${currentSize.boxHeight}px`,
+        padding: '8px 14px',
+      }}
     >
       <img
         src={ETSNTECH_LOGO_DATA_URL}
         alt="ETS N-TECH logo"
         style={{
-          width: `${currentSize.width}px`,
-          height: `${currentSize.height}px`,
+          width: `${currentSize.imageWidth}px`,
+          height: 'auto',
+          maxHeight: '100%',
           objectFit: 'contain',
+          objectPosition: 'center',
           display: 'block',
         }}
         draggable={false}
