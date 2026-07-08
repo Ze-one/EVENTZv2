@@ -12,6 +12,10 @@
       "destination": "/api/attendee-requests.ts"
     },
     {
+      "source": "/api/export-registry",
+      "destination": "/api/export-registry.ts"
+    },
+    {
       "source": "/api/scan-logs/clear",
       "destination": "/api/clear-scan-logs.ts"
     },
