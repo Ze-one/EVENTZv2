@@ -526,23 +526,37 @@ async function startServer() {
       </html>
     `;
 
-    if (isSmtpConfigured) {
+    // Prefer explicit Mailjet SMTP credentials if provided
+    const useMailjet = !!(process.env.MAILJET_API_KEY && process.env.MAILJET_SECRET);
+    if (isSmtpConfigured || useMailjet) {
       try {
-        const transporter = nodemailer.createTransport({
-          host: process.env.SMTP_HOST,
-          port: parseInt(process.env.SMTP_PORT || '587', 10),
-          secure: process.env.SMTP_PORT === '465',
-          auth: {
+        const transporterOptions: any = {};
+
+        if (useMailjet) {
+          transporterOptions.host = process.env.MAILJET_SMTP_HOST || 'in-v3.mailjet.com';
+          transporterOptions.port = parseInt(process.env.MAILJET_SMTP_PORT || process.env.SMTP_PORT || '587', 10);
+          transporterOptions.secure = transporterOptions.port === 465;
+          transporterOptions.auth = {
+            user: process.env.MAILJET_API_KEY,
+            pass: process.env.MAILJET_SECRET
+          };
+        } else {
+          transporterOptions.host = process.env.SMTP_HOST;
+          transporterOptions.port = parseInt(process.env.SMTP_PORT || '587', 10);
+          transporterOptions.secure = process.env.SMTP_PORT === '465';
+          transporterOptions.auth = {
             user: process.env.SMTP_USER,
             pass: process.env.SMTP_PASS,
-          },
-        });
+          };
+        }
+
+        const transporter = nodemailer.createTransport(transporterOptions);
 
         const base64Data = qrDataUrl.replace(/^data:image\/png;base64,/, '');
         const qrBuffer = Buffer.from(base64Data, 'base64');
 
         await transporter.sendMail({
-          from: process.env.SMTP_FROM || `"${event.organizerName || 'ETS N-TECH'}" <${process.env.SMTP_USER}>`,
+          from: process.env.SMTP_FROM || process.env.MAILJET_SENDER || `"${event.organizerName || 'ETS N-TECH'}" <${(process.env.SMTP_USER || process.env.MAILJET_SENDER || 'no-reply@eventz.com')}>`,
           to: participant.email,
           subject,
           html: htmlContent,
@@ -557,7 +571,7 @@ async function startServer() {
 
         await db.updateEmailLogStatus(logId, 'Delivered');
       } catch (err: any) {
-        console.error('SMTP real sending failed:', err);
+        console.error('SMTP/Mailjet sending failed:', err);
         await db.updateEmailLogStatus(logId, 'Failed', err.message || 'SMTP delivery failed');
       }
     } else {
@@ -572,6 +586,7 @@ async function startServer() {
       }, 1200 + Math.random() * 1200);
     }
   }
+
 
   // Email Pass: Send single pass to participant email
   app.post('/api/participants/:id/email', async (req, res) => {
@@ -657,6 +672,38 @@ async function startServer() {
     }
 
     res.json({ success: true, count: sentLogs.length, logs: sentLogs, simulated: !isSmtpConfigured });
+  });
+
+  // Quick SMTP/Mailjet diagnostic endpoint
+  app.post('/api/email-test', async (req, res) => {
+    const { to, customMessage } = req.body || {};
+    const recipient = (to && to.trim()) || req.body.email || '';
+    if (!recipient) {
+      res.status(400).json({ error: 'Recipient email `to` is required in request body.' });
+      return;
+    }
+
+    const event = await db.getEvent();
+    const participant = {
+      id: 'test-participant',
+      fullName: 'Test Recipient',
+      email: recipient,
+      passId: 'TEST-PASS-0001'
+    };
+
+    const log = await db.addEmailLog({
+      eventId: 'event-1',
+      participantId: participant.id,
+      participantName: participant.fullName,
+      recipientEmail: participant.email,
+      subject: `Test: ${event?.eventName || 'Event'}`,
+      status: 'Sending'
+    });
+
+    // Attempt to send asynchronously and return immediate response
+    sendEventPassEmail(participant, event, log.id, customMessage).catch(console.error);
+
+    res.json({ success: true, log, message: 'Email send initiated; check /api/email-logs for status.' });
   });
 
 
