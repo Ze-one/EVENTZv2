@@ -3,18 +3,18 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import dotenv from 'dotenv';
 import express from 'express';
 import path from 'path';
-import { fileURLToPath } from 'url';
+
+dotenv.config({ path: ['.env.local', '.env'] });
 import { createServer as createViteServer } from 'vite';
 import nodemailer from 'nodemailer';
 import QRCode from 'qrcode';
 import { db } from './src/server/db.js';
 import { PassStatus, ScanResult, UserRole } from './src/types.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
+const appRoot = process.cwd();
 const app = express();
 
 export { app };
@@ -59,6 +59,15 @@ async function startServer() {
       useSupabase: db.useSupabase,
       dbType: db.useSupabase ? 'Supabase' : 'Local JSON File',
       databaseFile: process.env.VERCEL ? '/tmp/db.json' : 'db.json'
+    });
+  });
+
+  // Health check for deployment verification
+  app.get('/api/health', (req, res) => {
+    res.json({
+      ok: true,
+      mode: db.useSupabase ? 'supabase' : 'local',
+      timestamp: new Date().toISOString()
     });
   });
 
@@ -660,7 +669,7 @@ async function startServer() {
       });
       app.use(vite.middlewares);
     } else {
-      const distPath = path.join(process.cwd(), 'dist');
+      const distPath = path.join(appRoot, 'dist');
       app.use(express.static(distPath));
       app.get('*', (req, res) => {
         res.sendFile(path.join(distPath, 'index.html'));

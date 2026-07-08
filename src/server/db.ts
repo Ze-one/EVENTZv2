@@ -3,8 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
+
+dotenv.config({ path: ['.env.local', '.env'] });
 import crypto from 'crypto';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { User, EventDetails, Participant, ScanLog, UserRole, PassStatus, EmailLog } from '../types.js';
