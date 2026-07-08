@@ -28,6 +28,8 @@ const DEFAULT_DESIGN = {
   logoText: 'eventZ',
   slogan: 'manage your event access by ETS.NTECH',
   icon: 'ticket',
+  customLogoDataUrl: '',
+  logoFit: 'contain',
   cornerRadius: 32,
   qrSize: 208,
   showTopNotch: true,
@@ -58,6 +60,15 @@ const iconMap: Record<string, React.ElementType> = {
   qr: QrCode,
   sparkles: Sparkles,
 };
+
+function loadCanvasImage(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
 
 export default function EventPassCard({ participant, event, onPrint }: EventPassCardProps) {
   const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
@@ -99,7 +110,42 @@ export default function EventPassCard({ participant, event, onPrint }: EventPass
     if (line) ctx.fillText(line, x, y);
   };
 
-  const handleDownloadImage = () => {
+  const drawCanvasLogo = async (ctx: CanvasRenderingContext2D) => {
+    ctx.fillStyle = design.logoBlockColor;
+    ctx.fillRect(32, 24, 132, 108);
+
+    if (design.customLogoDataUrl) {
+      try {
+        const logo = await loadCanvasImage(design.customLogoDataUrl);
+        const boxX = 42;
+        const boxY = 34;
+        const boxW = 112;
+        const boxH = 88;
+        const scale = design.logoFit === 'cover' ? Math.max(boxW / logo.width, boxH / logo.height) : Math.min(boxW / logo.width, boxH / logo.height);
+        const drawW = logo.width * scale;
+        const drawH = logo.height * scale;
+        const drawX = boxX + (boxW - drawW) / 2;
+        const drawY = boxY + (boxH - drawH) / 2;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(boxX, boxY, boxW, boxH);
+        ctx.clip();
+        ctx.drawImage(logo, drawX, drawY, drawW, drawH);
+        ctx.restore();
+        return;
+      } catch (err) {
+        console.warn('Custom logo could not be drawn on pass image:', err);
+      }
+    }
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 26px Arial';
+    ctx.fillText(design.logoText.replace('Z', ''), 48, 82);
+    ctx.fillStyle = design.accentColor;
+    ctx.fillText('Z', 126, 82);
+  };
+
+  const handleDownloadImage = async () => {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     if (!ctx || !qrCodeUrl) return;
@@ -113,13 +159,7 @@ export default function EventPassCard({ participant, event, onPrint }: EventPass
     ctx.fillStyle = design.topBarColor;
     ctx.fillRect(0, 0, canvas.width, 145);
 
-    ctx.fillStyle = design.logoBlockColor;
-    ctx.fillRect(32, 24, 132, 108);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 26px Arial';
-    ctx.fillText(design.logoText.replace('Z', ''), 48, 82);
-    ctx.fillStyle = design.accentColor;
-    ctx.fillText('Z', 126, 82);
+    await drawCanvasLogo(ctx);
 
     ctx.fillStyle = design.textColor;
     ctx.font = 'bold 18px Arial';
@@ -188,9 +228,15 @@ export default function EventPassCard({ participant, event, onPrint }: EventPass
       <div ref={cardRef} className="w-full overflow-hidden shadow-2xl border border-slate-300 text-left relative transition-all duration-300" style={{ fontFamily: design.fontStyle === 'classic' ? 'Georgia, serif' : 'Inter, sans-serif', backgroundColor: design.backgroundColor, borderRadius: radius }}>
         <div className="h-32 relative px-6 pt-4" style={{ backgroundColor: design.topBarColor }}>
           {design.showTopNotch && <div className="absolute left-1/2 -translate-x-1/2 -top-5 w-20 h-20 rounded-full bg-white"></div>}
-          <div className="w-24 h-24 flex items-center justify-center relative overflow-hidden" style={{ background: design.logoBlockColor }}>
-            <BrandIcon className="absolute text-white/20 -right-3 -bottom-3" size={54} />
-            <div className="text-white font-black text-xl tracking-[-0.08em] relative z-10">{design.logoText.replace('Z', '')}<span style={{ color: design.accentColor }}>Z</span></div>
+          <div className="w-24 h-24 flex items-center justify-center relative overflow-hidden p-2" style={{ background: design.logoBlockColor }}>
+            {design.customLogoDataUrl ? (
+              <img src={design.customLogoDataUrl} alt="Custom pass logo" className="relative z-10 w-full h-full" style={{ objectFit: design.logoFit as any }} />
+            ) : (
+              <>
+                <BrandIcon className="absolute text-white/20 -right-3 -bottom-3" size={54} />
+                <div className="text-white font-black text-xl tracking-[-0.08em] relative z-10">{design.logoText.replace('Z', '')}<span style={{ color: design.accentColor }}>Z</span></div>
+              </>
+            )}
           </div>
           <div className="absolute right-6 top-6 text-right" style={{ color: design.textColor }}>
             <div className="text-xs font-black tracking-wider uppercase">Start Date</div>
