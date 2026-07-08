@@ -8,7 +8,8 @@ import express from 'express';
 import path from 'path';
 
 dotenv.config({ path: ['.env.local', '.env'] });
-import { createServer as createViteServer } from 'vite';
+// `vite` is imported dynamically during development only to avoid loading
+// native build-time dependencies in the serverless runtime on Vercel.
 import nodemailer from 'nodemailer';
 import QRCode from 'qrcode';
 import { db } from './src/server/db.js';
@@ -663,6 +664,9 @@ async function startServer() {
 
   if (!process.env.VERCEL) {
     if (process.env.NODE_ENV !== 'production') {
+      // Import Vite dynamically so production serverless functions don't
+      // attempt to load build-time native dependencies (rollup, etc.).
+      const { createServer: createViteServer } = await import('vite');
       const vite = await createViteServer({
         server: { middlewareMode: true },
         appType: 'spa',
