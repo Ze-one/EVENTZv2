@@ -1,0 +1,6 @@
+{
+  "name": "ETSNTECH Digital Pass",
+  "description": "Digital Event Pass Generator and QR Verification Web System for ETS N-TECH",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
