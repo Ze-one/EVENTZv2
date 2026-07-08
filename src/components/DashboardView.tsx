@@ -6,6 +6,7 @@
 import React from 'react';
 import { Participant, ScanLog, EventDetails, UserRole } from '../types.js';
 import { Users, CheckCircle, Clock, AlertTriangle, RefreshCw, BarChart2, Zap, ArrowRight, LockKeyhole } from 'lucide-react';
+import ExportRegistryMenu from './ExportRegistryMenu.tsx';
 
 interface DashboardViewProps {
   participants: Participant[];
@@ -106,6 +107,7 @@ export default function DashboardView({ participants, scanLogs, event, onNavigat
                   <button onClick={() => onNavigate('upload')} className="w-full bg-transparent hover:bg-white/5 text-white border border-white/10 font-bold p-3.5 rounded-2xl text-xs flex items-center justify-between transition-all group"><span>Upload Participants list</span><ArrowRight size={14} className="text-gray-500 group-hover:translate-x-1 transition-transform" /></button>
                   <button onClick={() => onNavigate('participants')} className="w-full bg-transparent hover:bg-white/5 text-white border border-white/10 font-bold p-3.5 rounded-2xl text-xs flex items-center justify-between transition-all group"><span>Search / Manage Attendees</span><ArrowRight size={14} className="text-gray-500 group-hover:translate-x-1 transition-transform" /></button>
                   <button onClick={() => onNavigate('event-settings')} className="w-full bg-transparent hover:bg-white/5 text-white border border-white/10 font-bold p-3.5 rounded-2xl text-xs flex items-center justify-between transition-all group"><span>Customize Passes Theme</span><ArrowRight size={14} className="text-gray-500 group-hover:translate-x-1 transition-transform" /></button>
+                  <div className="pt-1"><ExportRegistryMenu /></div>
                 </>
               ) : (
                 <div className="bg-white/5 border border-white/10 rounded-2xl p-4 text-xs text-slate-300 leading-relaxed flex gap-3">
