@@ -6,7 +6,7 @@
 import React, { useMemo, useState } from 'react';
 import { EventDetails, Participant, PassStatus } from '../types.js';
 import EventPassCard from './EventPassCard.tsx';
-import { Save, Sliders, Palette, Calendar, MapPin, CheckCircle2, TicketCheck, ShieldCheck, Users, Star, QrCode, Sparkles, Paintbrush, LayoutTemplate, Type, Eye } from 'lucide-react';
+import { Save, Palette, Calendar, MapPin, CheckCircle2, TicketCheck, ShieldCheck, Users, Star, QrCode, Sparkles, Paintbrush, LayoutTemplate, Type, Eye, Upload, Image as ImageIcon, Trash2 } from 'lucide-react';
 
 interface EventSettingsViewProps {
   event: EventDetails;
@@ -42,6 +42,8 @@ const DEFAULT_DESIGN = {
   logoText: 'eventZ',
   slogan: 'manage your event access by ETS.NTECH',
   icon: 'ticket',
+  customLogoDataUrl: '',
+  logoFit: 'contain',
   cornerRadius: 32,
   qrSize: 208,
   showTopNotch: true,
@@ -82,6 +84,7 @@ export default function EventSettingsView({ event, onSave }: EventSettingsViewPr
   const [design, setDesign] = useState<PassDesign>(getDesign(event));
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [logoUploadError, setLogoUploadError] = useState('');
 
   const previewEvent = useMemo<EventDetails>(() => ({
     ...formData,
@@ -101,6 +104,23 @@ export default function EventSettingsView({ event, onSave }: EventSettingsViewPr
   };
 
   const updateDesign = (key: keyof PassDesign, value: any) => setDesign(prev => ({ ...prev, [key]: value }));
+
+  const handleLogoUpload = (file?: File) => {
+    setLogoUploadError('');
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setLogoUploadError('Please upload a valid image file for the pass logo.');
+      return;
+    }
+    if (file.size > 900 * 1024) {
+      setLogoUploadError('Logo file is too large. Use an image below 900 KB so it can be saved with the pass design.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => updateDesign('customLogoDataUrl', String(reader.result || ''));
+    reader.onerror = () => setLogoUploadError('Unable to read this logo file. Try another PNG/JPG/WebP image.');
+    reader.readAsDataURL(file);
+  };
 
   const handlePresetSelect = (preset: typeof BRAND_PRESETS[0]) => {
     setDesign(prev => ({
@@ -166,12 +186,34 @@ export default function EventSettingsView({ event, onSave }: EventSettingsViewPr
         <div className="apple-card p-6 rounded-3xl space-y-5">
           <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
             <div className="w-8 h-8 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-600"><Paintbrush size={15} /></div>
-            <div><h3 className="font-extrabold text-slate-800 text-sm">Mini Pass Design Studio</h3><p className="text-[10px] text-slate-400">Customize background, colors, icon, logo text, QR size, and ticket shape</p></div>
+            <div><h3 className="font-extrabold text-slate-800 text-sm">Mini Pass Design Studio</h3><p className="text-[10px] text-slate-400">Customize background, logo, icon, QR size, and ticket shape</p></div>
+          </div>
+
+          <div className="bg-white border border-slate-100 p-4 rounded-2xl shadow-sm space-y-4">
+            <div className="flex items-center gap-1.5 text-slate-700 font-bold text-xs"><ImageIcon size={13} /><span>Top-Left Logo Block</span></div>
+            <div className="grid grid-cols-1 md:grid-cols-[120px_1fr] gap-4 items-center">
+              <div className="w-28 h-28 rounded-2xl border border-slate-200 flex items-center justify-center overflow-hidden p-2" style={{ backgroundColor: design.logoBlockColor }}>
+                {design.customLogoDataUrl ? <img src={design.customLogoDataUrl} alt="Uploaded logo preview" className="w-full h-full" style={{ objectFit: design.logoFit as any }} /> : <div className="text-white font-black text-xl">{design.logoText.replace('Z', '')}<span style={{ color: design.accentColor }}>Z</span></div>}
+              </div>
+              <div className="space-y-3">
+                <label className="inline-flex items-center gap-2 bg-slate-950 hover:bg-slate-800 text-white font-black px-4 py-3 rounded-2xl text-xs cursor-pointer">
+                  <Upload size={14} /> Upload Custom Logo
+                  <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="hidden" onChange={(e) => handleLogoUpload(e.target.files?.[0])} />
+                </label>
+                {design.customLogoDataUrl && <button type="button" onClick={() => updateDesign('customLogoDataUrl', '')} className="inline-flex ml-2 items-center gap-2 bg-rose-50 hover:bg-rose-100 text-rose-700 font-black px-4 py-3 rounded-2xl text-xs"><Trash2 size={14} /> Remove Logo</button>}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div><label className="text-[9px] font-bold text-slate-400 tracking-wider uppercase block mb-1">Logo Fit</label><select value={design.logoFit} onChange={(e) => updateDesign('logoFit', e.target.value)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs"><option value="contain">Contain - show full logo</option><option value="cover">Cover - fill the block</option></select></div>
+                  <div>{colorInput('Logo Block Color', 'logoBlockColor')}</div>
+                </div>
+                <p className="text-[10px] text-slate-400 leading-relaxed">This uploaded logo replaces the small text/icon in the circled area and will appear on the preview, final pass, printed pass, and downloaded pass.</p>
+                {logoUploadError && <p className="text-[10px] font-bold text-rose-600">{logoUploadError}</p>}
+              </div>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
             <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Credential Header Title</label><input type="text" name="passTitle" value={formData.passTitle} onChange={handleInputChange} placeholder="e.g. DELEGATE PASS, VIP ACCESS" required className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-slate-900 focus:outline-none transition-all font-bold" /></div>
-            <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Logo Text</label><input type="text" value={design.logoText} onChange={(e) => updateDesign('logoText', e.target.value)} placeholder="eventZ" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-slate-900 focus:outline-none transition-all font-bold" /></div>
+            <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Fallback Logo Text</label><input type="text" value={design.logoText} onChange={(e) => updateDesign('logoText', e.target.value)} placeholder="eventZ" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-slate-900 focus:outline-none transition-all font-bold" /></div>
             <div className="space-y-1 md:col-span-2"><label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Slogan</label><input type="text" value={design.slogan} onChange={(e) => updateDesign('slogan', e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-slate-900 focus:outline-none transition-all" /></div>
             <div className="space-y-1 md:col-span-2"><label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Access Instruction Line</label><input type="text" name="accessInstruction" value={formData.accessInstruction} onChange={handleInputChange} required className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-slate-900 focus:outline-none transition-all" /></div>
             <div className="space-y-1 md:col-span-2"><label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Footer Note</label><input type="text" name="footerNote" value={formData.footerNote} onChange={handleInputChange} required className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-slate-900 focus:outline-none transition-all" /></div>
@@ -185,7 +227,6 @@ export default function EventSettingsView({ event, onSave }: EventSettingsViewPr
               {colorInput('Ticket Background', 'backgroundColor')}
               {colorInput('Top Strip Background', 'topBarColor')}
               {colorInput('Brand Panel Background', 'brandPanelColor')}
-              {colorInput('Logo Block Color', 'logoBlockColor')}
               {colorInput('Main Text Color', 'textColor')}
               {colorInput('Muted Text Color', 'mutedTextColor')}
               {colorInput('QR Frame Background', 'qrFrameColor')}
@@ -235,7 +276,7 @@ export default function EventSettingsView({ event, onSave }: EventSettingsViewPr
         </div>
         <div className="apple-card p-4 rounded-3xl text-xs text-slate-500 leading-relaxed">
           <div className="flex items-center gap-2 font-black text-slate-800 mb-1"><Type size={14} /> Design persistence</div>
-          These pass design settings are saved into the event configuration and reused by generated passes, downloaded passes, printed passes, and previews.
+          The uploaded custom logo is saved inside the pass design and reused by previewed, generated, downloaded, and printed passes.
         </div>
       </div>
     </div>
