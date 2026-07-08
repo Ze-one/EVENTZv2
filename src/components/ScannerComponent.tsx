@@ -5,7 +5,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
-import { Camera, RefreshCw, AlertCircle, Search, HelpCircle, Play, SwitchCamera } from 'lucide-react';
+import { Camera, RefreshCw, AlertCircle, Search, HelpCircle, Play, SwitchCamera, StopCircle } from 'lucide-react';
 
 interface ScannerComponentProps {
   onScanResult: (passId: string) => void;
@@ -26,6 +26,7 @@ export default function ScannerComponent({ onScanResult }: ScannerComponentProps
   const [isCameraLoading, setIsCameraLoading] = useState<boolean>(false);
   const [cameraStarted, setCameraStarted] = useState<boolean>(false);
   const [useFrontCamera, setUseFrontCamera] = useState<boolean>(false);
+  const [scannerInstanceKey, setScannerInstanceKey] = useState(0);
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const isStartingRef = useRef(false);
@@ -38,27 +39,6 @@ export default function ScannerComponent({ onScanResult }: ScannerComponentProps
       passId = parts[parts.length - 1];
     }
     return decodeURIComponent(passId).trim().toUpperCase();
-  };
-
-  const stopScanner = async () => {
-    const scanner = scannerRef.current;
-    if (!scanner) return;
-
-    try {
-      const state = (scanner as any).getState?.();
-      if (state === 2) await scanner.stop();
-    } catch (err) {
-      console.warn('Camera scanner stop warning:', err);
-    }
-
-    try {
-      await scanner.clear();
-    } catch (err) {
-      console.warn('Camera scanner clear warning:', err);
-    }
-
-    scannerRef.current = null;
-    setCameraStarted(false);
   };
 
   const getCameraDisplayName = (camera: CameraDeviceInfo, index: number) => {
@@ -76,7 +56,48 @@ export default function ScannerComponent({ onScanResult }: ScannerComponentProps
     return backCam?.id || deviceList[0].id;
   };
 
-  const refreshCameraList = async () => {
+  const stopScanner = async () => {
+    const scanner = scannerRef.current;
+    if (scanner) {
+      try {
+        if ((scanner as any).isScanning) {
+          await scanner.stop();
+        }
+      } catch (err) {
+        console.warn('Camera scanner stop warning:', err);
+      }
+
+      try {
+        await scanner.clear();
+      } catch (err) {
+        console.warn('Camera scanner clear warning:', err);
+      }
+    }
+
+    scannerRef.current = null;
+    setCameraStarted(false);
+    setScannerInstanceKey((value) => value + 1);
+  };
+
+  const requestBrowserCameraPermission = async (front = false) => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error('This browser does not support camera access. Use Chrome, Edge, or Safari on the live HTTPS link.');
+    }
+
+    const constraints: MediaStreamConstraints = {
+      video: {
+        facingMode: front ? 'user' : { ideal: 'environment' },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      },
+      audio: false,
+    };
+
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    stream.getTracks().forEach((track) => track.stop());
+  };
+
+  const refreshCameraList = async (front = useFrontCamera) => {
     try {
       const devices = await Html5Qrcode.getCameras();
       const mapped = devices.map((camera, index) => ({
@@ -84,7 +105,8 @@ export default function ScannerComponent({ onScanResult }: ScannerComponentProps
         label: camera.label || `Camera ${index + 1}`
       }));
       setCameras(mapped);
-      setSelectedCameraId((current) => current || choosePreferredCamera(mapped, useFrontCamera));
+      const preferred = choosePreferredCamera(mapped, front);
+      if (preferred) setSelectedCameraId((current) => current || preferred);
       return mapped;
     } catch (err) {
       console.warn('Camera listing warning:', err);
@@ -92,66 +114,92 @@ export default function ScannerComponent({ onScanResult }: ScannerComponentProps
     }
   };
 
+  const startScannerWithConfig = async (scanner: Html5Qrcode, cameraConfig: any) => {
+    await scanner.start(
+      cameraConfig,
+      {
+        fps: 10,
+        qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+          const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+          const qrboxSize = Math.max(180, Math.floor(minEdge * 0.72));
+          return { width: qrboxSize, height: qrboxSize };
+        },
+        aspectRatio: 1.0,
+        disableFlip: false,
+      },
+      (decodedText) => {
+        const passId = normalizePassId(decodedText);
+        const now = Date.now();
+        if (lastScanRef.current.value === passId && now - lastScanRef.current.time < 2500) return;
+        lastScanRef.current = { value: passId, time: now };
+        onScanResult(passId);
+      },
+      () => {
+        // Frame-level read errors are normal while the camera searches for a QR code.
+      }
+    );
+  };
+
   const startScanner = async (cameraId?: string, preferFront = useFrontCamera) => {
     if (activeTab !== 'camera' || isStartingRef.current) return;
-
     isStartingRef.current = true;
     setIsCameraLoading(true);
     setScanError('');
 
     try {
       await stopScanner();
+      await new Promise((resolve) => setTimeout(resolve, 120));
+
+      await requestBrowserCameraPermission(preferFront);
+      const detectedCameras = await refreshCameraList(preferFront);
+      const selectedId = cameraId || selectedCameraId || choosePreferredCamera(detectedCameras, preferFront);
 
       const scanner = new Html5Qrcode('reader-container', { verbose: false });
       scannerRef.current = scanner;
 
-      const scanConfig = {
-        fps: 10,
-        qrbox: { width: 250, height: 250 },
-        aspectRatio: 1.0,
-        disableFlip: false,
-      };
+      const attempts = selectedId
+        ? [
+            { deviceId: { exact: selectedId } },
+            selectedId,
+            { facingMode: preferFront ? 'user' : 'environment' },
+            { facingMode: preferFront ? 'user' : { ideal: 'environment' } },
+          ]
+        : [
+            { facingMode: preferFront ? 'user' : 'environment' },
+            { facingMode: preferFront ? 'user' : { ideal: 'environment' } },
+          ];
 
-      const cameraConstraint: any = cameraId
-        ? cameraId
-        : { facingMode: preferFront ? 'user' : { ideal: 'environment' } };
-
-      await scanner.start(
-        cameraConstraint,
-        scanConfig,
-        async (decodedText) => {
-          const passId = normalizePassId(decodedText);
-          const now = Date.now();
-          if (lastScanRef.current.value === passId && now - lastScanRef.current.time < 2500) return;
-          lastScanRef.current = { value: passId, time: now };
-          onScanResult(passId);
-        },
-        () => {
-          // Frame-level scan failures are normal while searching for a QR code.
+      let lastError: any = null;
+      for (const config of attempts) {
+        try {
+          await startScannerWithConfig(scanner, config);
+          lastError = null;
+          break;
+        } catch (err) {
+          lastError = err;
+          try {
+            if ((scanner as any).isScanning) await scanner.stop();
+          } catch {}
         }
-      );
+      }
+
+      if (lastError) throw lastError;
 
       setCameraStarted(true);
-      const updatedCameras = await refreshCameraList();
-      if (!cameraId && updatedCameras.length > 0) {
-        setSelectedCameraId(choosePreferredCamera(updatedCameras, preferFront));
-      }
+      if (selectedId) setSelectedCameraId(selectedId);
     } catch (err: any) {
       console.error('Camera scanner start failed:', err);
       setCameraStarted(false);
-      setScanError(
-        err?.message ||
-        'Unable to start the camera. On phones, open the live HTTPS app in Chrome/Safari, allow camera permission, then try again.'
-      );
+      const name = err?.name ? `${err.name}: ` : '';
+      const message = err?.message || 'Unable to start camera.';
+      setScanError(`${name}${message} Make sure the app is opened on the live HTTPS Vercel URL, camera permission is allowed, and no other app is already using the camera.`);
     } finally {
       isStartingRef.current = false;
       setIsCameraLoading(false);
     }
   };
 
-  const handleStartCamera = () => {
-    startScanner(selectedCameraId || undefined, useFrontCamera);
-  };
+  const handleStartCamera = () => startScanner(selectedCameraId || undefined, useFrontCamera);
 
   const handleCameraSwitch = async () => {
     const nextUseFront = !useFrontCamera;
@@ -162,19 +210,11 @@ export default function ScannerComponent({ onScanResult }: ScannerComponentProps
   };
 
   useEffect(() => {
-    refreshCameraList();
     return () => {
       stopScanner();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    if (cameraStarted && selectedCameraId) {
-      startScanner(selectedCameraId, useFrontCamera);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCameraId]);
 
   const handleManualSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -237,7 +277,7 @@ export default function ScannerComponent({ onScanResult }: ScannerComponentProps
             )}
 
             <div className="w-full aspect-square max-w-[340px] bg-slate-950 rounded-[2rem] overflow-hidden border border-slate-800 relative shadow-2xl">
-              <div id="reader-container" className="w-full h-full"></div>
+              <div key={scannerInstanceKey} id="reader-container" className="w-full h-full"></div>
 
               {!cameraStarted && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-white bg-slate-950/95 p-6 text-center">
@@ -246,7 +286,7 @@ export default function ScannerComponent({ onScanResult }: ScannerComponentProps
                   </div>
                   <div>
                     <p className="font-black text-sm">Ready to scan real passes</p>
-                    <p className="text-slate-400 text-xs mt-1 leading-relaxed">Tap start to allow camera access. On phones, the back camera is preferred for QR scanning.</p>
+                    <p className="text-slate-400 text-xs mt-1 leading-relaxed">Tap start once and allow camera permission. On phones, the back camera is preferred.</p>
                   </div>
                   <button
                     onClick={handleStartCamera}
@@ -271,14 +311,18 @@ export default function ScannerComponent({ onScanResult }: ScannerComponentProps
               )}
             </div>
 
-            <div className="w-full grid grid-cols-2 gap-2">
-              <button onClick={handleCameraSwitch} className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-3 rounded-2xl text-xs flex items-center justify-center gap-2">
+            <div className="w-full grid grid-cols-3 gap-2">
+              <button onClick={handleCameraSwitch} disabled={isCameraLoading} className="bg-slate-100 hover:bg-slate-200 disabled:opacity-60 text-slate-700 font-bold py-3 rounded-2xl text-xs flex items-center justify-center gap-2">
                 <SwitchCamera size={14} />
-                Front / Back
+                Flip
               </button>
-              <button onClick={() => refreshCameraList()} className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-3 rounded-2xl text-xs flex items-center justify-center gap-2">
+              <button onClick={() => refreshCameraList()} disabled={isCameraLoading} className="bg-slate-100 hover:bg-slate-200 disabled:opacity-60 text-slate-700 font-bold py-3 rounded-2xl text-xs flex items-center justify-center gap-2">
                 <RefreshCw size={14} />
-                Detect Cameras
+                Detect
+              </button>
+              <button onClick={stopScanner} disabled={!cameraStarted} className="bg-rose-50 hover:bg-rose-100 disabled:opacity-40 text-rose-700 font-bold py-3 rounded-2xl text-xs flex items-center justify-center gap-2">
+                <StopCircle size={14} />
+                Stop
               </button>
             </div>
           </div>
