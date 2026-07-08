@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { Participant, EventDetails, PassStatus } from '../types.js';
+import { Participant, EventDetails, PassStatus, EmailLog } from '../types.js';
 import { Search, Filter, MoreVertical, ShieldAlert, CheckCircle2, UserCheck, Trash2, ArrowUpRight, Award, User, RotateCcw, X, Mail, Send } from 'lucide-react';
 import EventPassCard from './EventPassCard.tsx';
 
@@ -18,6 +18,7 @@ interface ParticipantsListViewProps {
   onAddParticipant: (p: { fullName: string; phone: string; email: string; organization: string; category: string }) => Promise<void>;
   onSendEmail?: (id: string, email?: string, customMessage?: string) => Promise<void>;
   onSendEmailsBulk?: (ids: string[], customMessage?: string) => Promise<void>;
+  emailLogs?: EmailLog[];
 }
 
 export default function ParticipantsListView({
@@ -29,7 +30,8 @@ export default function ParticipantsListView({
   onResetCheckIn,
   onAddParticipant,
   onSendEmail,
-  onSendEmailsBulk
+  onSendEmailsBulk,
+  emailLogs = []
 }: ParticipantsListViewProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | PassStatus>('All');
@@ -86,6 +88,23 @@ export default function ParticipantsListView({
 
   // Unique categories list
   const categories = ['All', ...Array.from(new Set(participants.map(p => p.category).filter(Boolean)))];
+
+  const getParticipantEmailStatus = (participant: Participant) => {
+    const latestLog = [...emailLogs]
+      .filter((log) => log.participantId === participant.id)
+      .sort((a, b) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime())[0];
+
+    if (!latestLog) return null;
+
+    const statusLabel = latestLog.status === 'Delivered' ? 'Delivered' : latestLog.status === 'Failed' ? 'Failed' : 'Sent';
+    const colorClass = latestLog.status === 'Delivered'
+      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+      : latestLog.status === 'Failed'
+        ? 'bg-rose-50 text-rose-700 border-rose-200'
+        : 'bg-amber-50 text-amber-700 border-amber-200';
+
+    return { label: statusLabel, colorClass, detail: latestLog.errorMessage || null };
+  };
 
   // Filter logic
   const filteredList = participants.filter(p => {
@@ -342,14 +361,26 @@ export default function ParticipantsListView({
                       </td>
                       {/* Name Column */}
                       <td className="py-3.5 px-4">
-                        <div className="font-bold text-slate-800 text-sm leading-tight">
-                          {p.fullName}
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <div className="font-bold text-slate-800 text-sm leading-tight">
+                              {p.fullName}
+                            </div>
+                            {p.organization && (
+                              <span className="text-[10px] text-slate-500 font-medium block mt-0.5">
+                                💼 {p.organization}
+                              </span>
+                            )}
+                          </div>
+                          {(() => {
+                            const emailState = getParticipantEmailStatus(p);
+                            return emailState ? (
+                              <span className={`px-2 py-1 rounded-full text-[10px] font-bold border ${emailState.colorClass}`} title={emailState.detail || undefined}>
+                                {emailState.label}
+                              </span>
+                            ) : null;
+                          })()}
                         </div>
-                        {p.organization && (
-                          <span className="text-[10px] text-slate-500 font-medium block mt-0.5">
-                            💼 {p.organization}
-                          </span>
-                        )}
                       </td>
 
                       {/* Contact & Category */}

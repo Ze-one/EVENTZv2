@@ -66,8 +66,8 @@ export interface Participant {
   checkedInAt?: string;
   checkedInBy?: string;
   createdAt: string;
-  updatedAt: string;
-}
+  updatedAt: string;  lastEmailStatus?: 'Queued' | 'Sending' | 'Delivered' | 'Failed';
+  lastEmailError?: string | null;}
 
 export interface ScanLog {
   id: string;

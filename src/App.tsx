@@ -983,6 +983,7 @@ export default function App() {
             onAddParticipant={handleAddParticipant}
             onSendEmail={handleSendEmail}
             onSendEmailsBulk={handleSendEmailsBulk}
+            emailLogs={emailLogs}
           />
         )}
 
