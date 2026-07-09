@@ -7,7 +7,6 @@ import React, { useMemo, useState } from 'react';
 import { EventDetails, Participant, PassStatus } from '../types.js';
 import EventPassCard from './EventPassCard.tsx';
 import { Save, Palette, Calendar, MapPin, CheckCircle2, TicketCheck, ShieldCheck, Users, Star, QrCode, Sparkles, Paintbrush, LayoutTemplate, Type, Eye, Upload, Image as ImageIcon, Trash2 } from 'lucide-react';
-import { EVENTZ_FULL_LOGO_DATA_URL } from '../assets/eventz-brand-logo.ts';
 
 interface EventSettingsViewProps {
   event: EventDetails;
@@ -19,7 +18,7 @@ const mockPreviewParticipant: Participant = {
 };
 
 const DEFAULT_DESIGN = {
-  type: 'eventz-pass-design', designType: 'ticket', backgroundColor: '#d8dcdf', topBarColor: '#d8dcdf', brandPanelColor: '#ffffff', textColor: '#020617', mutedTextColor: '#475569', logoBlockColor: '#ffffff', qrFrameColor: '#ffffff', primaryColor: '#0b1f4d', accentColor: '#f2a900', logoText: 'eventZ', slogan: 'manage your event access by ETS.NTECH', icon: 'eventz-logo', customLogoDataUrl: EVENTZ_FULL_LOGO_DATA_URL, logoFit: 'contain', cornerRadius: 32, qrSize: 208, showTopNotch: true, showBrandPanel: true, fontStyle: 'modern'
+  type: 'eventz-pass-design', designType: 'ticket', backgroundColor: '#d8dcdf', topBarColor: '#d8dcdf', brandPanelColor: '#ffffff', textColor: '#020617', mutedTextColor: '#475569', logoBlockColor: '#0b1f4d', qrFrameColor: '#ffffff', primaryColor: '#0b1f4d', accentColor: '#f2a900', logoText: 'eventZ', slogan: 'manage your event access by ETS.NTECH', icon: 'ticket', customLogoDataUrl: '', logoFit: 'contain', cornerRadius: 32, qrSize: 208, showTopNotch: true, showBrandPanel: true, fontStyle: 'modern'
 };
 
 type PassDesign = typeof DEFAULT_DESIGN;
@@ -34,7 +33,6 @@ const BRAND_PRESETS = [
 ];
 
 const ICONS = [
-  { id: 'eventz-logo', label: 'EVENTZ Logo', Icon: ImageIcon },
   { id: 'ticket', label: 'Ticket', Icon: TicketCheck },
   { id: 'shield', label: 'Security', Icon: ShieldCheck },
   { id: 'users', label: 'People', Icon: Users },
@@ -46,7 +44,7 @@ const ICONS = [
 function getDesign(event: EventDetails): PassDesign {
   try {
     const parsed = JSON.parse(event.logoPath || '{}');
-    if (parsed?.type === 'eventz-pass-design') return { ...DEFAULT_DESIGN, ...parsed };
+    if (parsed?.type === 'eventz-pass-design') return { ...DEFAULT_DESIGN, ...parsed, customLogoDataUrl: parsed.customLogoDataUrl || '' };
   } catch {}
   return { ...DEFAULT_DESIGN, primaryColor: event.primaryColor || DEFAULT_DESIGN.primaryColor, accentColor: event.accentColor || DEFAULT_DESIGN.accentColor };
 }
@@ -66,9 +64,9 @@ export default function EventSettingsView({ event, onSave }: EventSettingsViewPr
     setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value }));
   };
 
-  const useOfficialLogo = () => {
+  const resetToEventzStyle = () => {
     setLogoUploadError('');
-    setDesign(prev => ({ ...prev, icon: 'eventz-logo', customLogoDataUrl: EVENTZ_FULL_LOGO_DATA_URL, logoFit: 'contain', logoBlockColor: '#ffffff' }));
+    setDesign(prev => ({ ...prev, icon: 'ticket', customLogoDataUrl: '', logoText: 'eventZ', logoFit: 'contain', logoBlockColor: '#0b1f4d' }));
   };
 
   const handleLogoUpload = (file?: File) => {
@@ -115,20 +113,20 @@ export default function EventSettingsView({ event, onSave }: EventSettingsViewPr
         </div>
 
         <div className="apple-card p-6 rounded-3xl space-y-5">
-          <div className="flex items-center gap-2 border-b border-slate-100 pb-3"><div className="w-8 h-8 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-600"><Paintbrush size={15} /></div><div><h3 className="font-extrabold text-slate-800 text-sm">Mini Pass Design Studio</h3><p className="text-[10px] text-slate-400">Customize background, official logo, icon, QR size, and ticket shape</p></div></div>
+          <div className="flex items-center gap-2 border-b border-slate-100 pb-3"><div className="w-8 h-8 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-600"><Paintbrush size={15} /></div><div><h3 className="font-extrabold text-slate-800 text-sm">Mini Pass Design Studio</h3><p className="text-[10px] text-slate-400">Customize background, logo, icon, QR size, and ticket shape</p></div></div>
 
           <div className="bg-white border border-slate-100 p-4 rounded-2xl shadow-sm space-y-4">
-            <div className="flex items-center gap-1.5 text-slate-700 font-bold text-xs"><ImageIcon size={13} /><span>Top-Left Logo Block / Icon Library</span></div>
+            <div className="flex items-center gap-1.5 text-slate-700 font-bold text-xs"><ImageIcon size={13} /><span>Top-Left Logo Block</span></div>
             <div className="grid grid-cols-1 md:grid-cols-[150px_1fr] gap-4 items-center">
               <div className="w-36 h-24 rounded-2xl border border-slate-200 flex items-center justify-center overflow-hidden p-2" style={{ backgroundColor: design.logoBlockColor }}>
-                {design.customLogoDataUrl ? <img src={design.customLogoDataUrl} alt="Uploaded logo preview" className="w-full h-full" style={{ objectFit: design.logoFit as any }} /> : <div className="text-white font-black text-xl">{design.logoText.replace('Z', '')}<span style={{ color: design.accentColor }}>Z</span></div>}
+                {design.customLogoDataUrl ? <img src={design.customLogoDataUrl} alt="Uploaded logo preview" className="w-full h-full" style={{ objectFit: design.logoFit as any }} /> : <div className="text-white font-black text-xl tracking-[-0.08em]">{design.logoText.replace('Z', '')}<span style={{ color: design.accentColor }}>Z</span></div>}
               </div>
               <div className="space-y-3">
-                <button type="button" onClick={useOfficialLogo} className="inline-flex items-center gap-2 bg-yellow-400 hover:bg-yellow-300 text-slate-950 font-black px-4 py-3 rounded-2xl text-xs"><ImageIcon size={14} /> Use Official EVENTZ Logo</button>
+                <button type="button" onClick={resetToEventzStyle} className="inline-flex items-center gap-2 bg-yellow-400 hover:bg-yellow-300 text-slate-950 font-black px-4 py-3 rounded-2xl text-xs"><ImageIcon size={14} /> Use EVENTZ Text Logo</button>
                 <label className="inline-flex ml-2 items-center gap-2 bg-slate-950 hover:bg-slate-800 text-white font-black px-4 py-3 rounded-2xl text-xs cursor-pointer"><Upload size={14} /> Upload Custom Logo<input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="hidden" onChange={(e) => handleLogoUpload(e.target.files?.[0])} /></label>
                 {design.customLogoDataUrl && <button type="button" onClick={() => updateDesign('customLogoDataUrl', '')} className="inline-flex ml-2 items-center gap-2 bg-rose-50 hover:bg-rose-100 text-rose-700 font-black px-4 py-3 rounded-2xl text-xs"><Trash2 size={14} /> Remove Logo</button>}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3"><div><label className="text-[9px] font-bold text-slate-400 tracking-wider uppercase block mb-1">Logo Fit</label><select value={design.logoFit} onChange={(e) => updateDesign('logoFit', e.target.value)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs"><option value="contain">Contain - show full logo</option><option value="cover">Cover - fill the block</option></select></div><div>{colorInput('Logo Block Color', 'logoBlockColor')}</div></div>
-                <p className="text-[10px] text-slate-400 leading-relaxed">The official EVENTZ logo has been added as an icon/logo option. It appears in the preview, generated passes, printed pass, and downloaded pass.</p>
+                <p className="text-[10px] text-slate-400 leading-relaxed">The app has been rolled back to the reliable built-in EVENTZ text logo style. You can still upload a custom logo manually for a specific event.</p>
                 {logoUploadError && <p className="text-[10px] font-bold text-rose-600">{logoUploadError}</p>}
               </div>
             </div>
@@ -149,8 +147,8 @@ export default function EventSettingsView({ event, onSave }: EventSettingsViewPr
           </div>
 
           <div className="bg-white border border-slate-100 p-4 rounded-2xl shadow-sm space-y-4">
-            <div className="flex items-center gap-1.5 text-slate-700 font-bold text-xs"><LayoutTemplate size={13} /><span>Layout & Icon Library</span></div>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">{ICONS.map(({ id, label, Icon }) => <button key={id} type="button" onClick={() => id === 'eventz-logo' ? useOfficialLogo() : updateDesign('icon', id)} className={`p-3 rounded-2xl border text-xs font-bold flex flex-col items-center gap-1 ${design.icon === id ? 'bg-slate-950 text-white border-slate-950' : 'bg-slate-50 text-slate-600 border-slate-100 hover:bg-slate-100'}`}>{id === 'eventz-logo' ? <img src={EVENTZ_FULL_LOGO_DATA_URL} className="w-16 h-8 object-contain" /> : <Icon size={18} />}<span>{label}</span></button>)}</div>
+            <div className="flex items-center gap-1.5 text-slate-700 font-bold text-xs"><LayoutTemplate size={13} /><span>Icon Library</span></div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">{ICONS.map(({ id, label, Icon }) => <button key={id} type="button" onClick={() => updateDesign('icon', id)} className={`p-3 rounded-2xl border text-xs font-bold flex flex-col items-center gap-1 ${design.icon === id ? 'bg-slate-950 text-white border-slate-950' : 'bg-slate-50 text-slate-600 border-slate-100 hover:bg-slate-100'}`}><Icon size={18} /><span>{label}</span></button>)}</div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs"><div><label className="text-[9px] font-bold text-slate-400 tracking-wider uppercase block mb-1">QR Size</label><input type="range" min="150" max="260" value={design.qrSize} onChange={(e) => updateDesign('qrSize', Number(e.target.value))} className="w-full" /><span className="font-mono text-slate-500">{design.qrSize}px</span></div><div><label className="text-[9px] font-bold text-slate-400 tracking-wider uppercase block mb-1">Corner Radius</label><input type="range" min="0" max="48" value={design.cornerRadius} onChange={(e) => updateDesign('cornerRadius', Number(e.target.value))} className="w-full" /><span className="font-mono text-slate-500">{design.cornerRadius}px</span></div><div><label className="text-[9px] font-bold text-slate-400 tracking-wider uppercase block mb-1">Font Style</label><select value={design.fontStyle} onChange={(e) => updateDesign('fontStyle', e.target.value)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl"><option value="modern">Modern</option><option value="classic">Classic</option></select></div></div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3"><label className="flex items-center gap-3 cursor-pointer text-xs font-semibold text-slate-700"><input type="checkbox" checked={design.showTopNotch} onChange={(e) => updateDesign('showTopNotch', e.target.checked)} /> Show ticket notch</label><label className="flex items-center gap-3 cursor-pointer text-xs font-semibold text-slate-700"><input type="checkbox" checked={design.showBrandPanel} onChange={(e) => updateDesign('showBrandPanel', e.target.checked)} /> Show central brand panel</label></div>
           </div>
@@ -161,7 +159,7 @@ export default function EventSettingsView({ event, onSave }: EventSettingsViewPr
         <div className="flex items-center justify-end gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-200/50">{saveSuccess && <span className="text-emerald-600 font-bold text-xs flex items-center gap-1.5 animate-bounce"><CheckCircle2 size={14} /> Design saved</span>}<button type="submit" disabled={saving} className="bg-slate-900 hover:bg-slate-800 text-white font-bold px-6 py-3 rounded-xl text-sm flex items-center gap-2 transition-all shadow disabled:opacity-50"><Save size={16} />{saving ? 'Saving Studio...' : 'Save Pass Design'}</button></div>
       </form>
 
-      <div className="lg:col-span-5 lg:sticky lg:top-6 h-fit space-y-4"><div className="bg-slate-900 text-white p-4 rounded-3xl shadow-xl border border-slate-800"><div className="flex items-center gap-2 mb-4"><Eye size={16} className="text-yellow-400" /><div><h3 className="font-extrabold text-sm">Live Pass Preview</h3><p className="text-[10px] text-slate-400">Every design studio change appears here before saving.</p></div></div><EventPassCard participant={mockPreviewParticipant} event={previewEvent} /></div><div className="apple-card p-4 rounded-3xl text-xs text-slate-500 leading-relaxed"><div className="flex items-center gap-2 font-black text-slate-800 mb-1"><Type size={14} /> Design persistence</div>The official EVENTZ logo and all studio settings are saved into the event configuration and reused by previewed, generated, downloaded, printed, and emailed passes.</div></div>
+      <div className="lg:col-span-5 lg:sticky lg:top-6 h-fit space-y-4"><div className="bg-slate-900 text-white p-4 rounded-3xl shadow-xl border border-slate-800"><div className="flex items-center gap-2 mb-4"><Eye size={16} className="text-yellow-400" /><div><h3 className="font-extrabold text-sm">Live Pass Preview</h3><p className="text-[10px] text-slate-400">Every design studio change appears here before saving.</p></div></div><EventPassCard participant={mockPreviewParticipant} event={previewEvent} /></div><div className="apple-card p-4 rounded-3xl text-xs text-slate-500 leading-relaxed"><div className="flex items-center gap-2 font-black text-slate-800 mb-1"><Type size={14} /> Design persistence</div>The reliable EVENTZ text logo and all studio settings are saved into the event configuration and reused by previewed, generated, downloaded, printed, and emailed passes.</div></div>
     </div>
   );
 }
