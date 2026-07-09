@@ -18,6 +18,14 @@ function safeUser(user: any) {
   return rest;
 }
 
+function normalizeProfileImage(value: unknown): string | undefined {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (raw.length > 900_000) throw new Error('Profile picture is too large. Use an image below 900 KB.');
+  if (!raw.startsWith('data:image/') && !raw.startsWith('http')) throw new Error('Profile picture must be an image URL or a valid uploaded image data URL.');
+  return raw;
+}
+
 function getSupabase() {
   const url = process.env.SUPABASE_URL || '';
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
@@ -26,19 +34,11 @@ function getSupabase() {
 }
 
 function readLocalDb() {
-  const fallback = {
-    users: [],
-    events: [],
-    participants: [],
-    scanLogs: [],
-    emailLogs: []
-  };
+  const fallback = { users: [], events: [], participants: [], scanLogs: [], emailLogs: [] };
   try {
     if (!fs.existsSync(DB_FILE)) return fallback;
     return JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
-  } catch {
-    return fallback;
-  }
+  } catch { return fallback; }
 }
 
 function writeLocalDb(data: any) {
@@ -60,6 +60,11 @@ async function updateUser(id: string, updates: any) {
   if (updates.name) cleaned.name = String(updates.name).trim();
   if (updates.email) cleaned.email = String(updates.email).trim().toLowerCase();
   if (updates.password) cleaned.passwordHash = hashPassword(String(updates.password));
+  if (Object.prototype.hasOwnProperty.call(updates, 'profileImage') || Object.prototype.hasOwnProperty.call(updates, 'avatarUrl') || Object.prototype.hasOwnProperty.call(updates, 'photoUrl')) {
+    const profileImage = normalizeProfileImage(updates.profileImage || updates.avatarUrl || updates.photoUrl || '');
+    cleaned.profileImage = profileImage;
+    cleaned.avatarUrl = profileImage;
+  }
 
   const supabase = getSupabase();
   if (supabase) {
@@ -83,15 +88,16 @@ async function createGateOfficer(input: any) {
   if (!name || !email || !password) throw new Error('Name, email and password are required.');
 
   const users = await getUsers();
-  if (users.some((u: any) => String(u.email).toLowerCase() === email)) {
-    throw new Error('A user with this email already exists.');
-  }
+  if (users.some((u: any) => String(u.email).toLowerCase() === email)) throw new Error('A user with this email already exists.');
 
+  const profileImage = normalizeProfileImage(input.profileImage || input.avatarUrl || input.photoUrl || '') || '';
   const newUser = {
     id: `user-${Math.random().toString(36).slice(2, 9)}`,
     name,
     email,
     role: UserRole.GATE_OFFICER,
+    profileImage,
+    avatarUrl: profileImage,
     passwordHash: hashPassword(password),
     createdAt: new Date().toISOString()
   };
@@ -136,25 +142,19 @@ export default async function handler(req: any, res: any) {
       res.status(200).json(users.map(safeUser));
       return;
     }
-
     if (req.method === 'POST') {
       const created = await createGateOfficer(req.body || {});
       res.status(201).json(safeUser(created));
       return;
     }
-
     if (req.method === 'PUT') {
       const { id, ...updates } = req.body || {};
       if (!id) throw new Error('User id is required.');
       const updated = await updateUser(id, updates);
-      if (!updated) {
-        res.status(404).json({ error: 'User not found.' });
-        return;
-      }
+      if (!updated) { res.status(404).json({ error: 'User not found.' }); return; }
       res.status(200).json(safeUser(updated));
       return;
     }
-
     if (req.method === 'DELETE') {
       const id = req.query?.id || req.body?.id;
       if (!id) throw new Error('User id is required.');
@@ -162,7 +162,6 @@ export default async function handler(req: any, res: any) {
       res.status(200).json({ success: true });
       return;
     }
-
     res.setHeader('Allow', 'GET, POST, PUT, DELETE');
     res.status(405).json({ error: 'Method not allowed' });
   } catch (error: any) {
