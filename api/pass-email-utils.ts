@@ -74,7 +74,7 @@ function buildFallbackLogoHtml(design: any) {
   return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:20px;line-height:1;font-weight:900;color:#ffffff;letter-spacing:-1px;text-align:center;">${baseText}<span style="color:${safeCssColor(design.accentColor, BRAND.gold)};">Z</span></div>`;
 }
 
-function buildEmailHtml(participant: any, event: any, customMessage: string | undefined, verifyUrl: string, qrDataUrl: string) {
+function buildEmailHtml(participant: any, event: any, customMessage: string | undefined, qrDataUrl: string) {
   const design = getDesign(event);
   const bg = safeCssColor(design.backgroundColor, '#d8dcdf');
   const top = safeCssColor(design.topBarColor, '#d8dcdf');
@@ -154,7 +154,6 @@ function buildEmailHtml(participant: any, event: any, customMessage: string | un
               <div style="font-family:monospace;font-size:18px;margin-top:10px;color:${text};letter-spacing:.5px;">${escapeHtml(participant.passId)}</div>
             </div>
             <div style="font-size:11px;font-weight:800;color:${muted};padding:12px 32px 0 32px;line-height:1.45;">${escapeHtml(event?.accessInstruction || 'Present this QR code at the entrance for verification.')}</div>
-            <div style="padding-top:14px;"><a href="${escapeHtml(verifyUrl)}" style="display:inline-block;background:${primary};color:#ffffff;text-decoration:none;border-radius:12px;padding:11px 16px;font-size:12px;font-weight:900;">Open Verification Link</a></div>
           </td>
         </tr>
       </table>
@@ -171,7 +170,7 @@ export async function sendParticipantPassEmail(req: any, participant: any, event
   const qrDataUrl = await QRCode.toDataURL(verifyUrl, { margin: 1, width: 360, color: { dark: '#000000', light: '#ffffff' } });
   const subject = `Your Entrance Pass: ${event?.eventName || 'Event'}`;
   const sender = getSender(event);
-  const html = buildEmailHtml(participant, event, customMessage, verifyUrl, qrDataUrl);
+  const html = buildEmailHtml(participant, event, customMessage, qrDataUrl);
 
   try {
     if (process.env.SENDGRID_API_KEY) {
