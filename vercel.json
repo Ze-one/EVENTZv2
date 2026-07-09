@@ -20,6 +20,14 @@
       "destination": "/api/export-report.ts"
     },
     {
+      "source": "/api/pass-qr/:passId",
+      "destination": "/api/pass-qr.ts?passId=:passId"
+    },
+    {
+      "source": "/api/participants/:id/regenerate",
+      "destination": "/api/regenerate-pass.ts?id=:id"
+    },
+    {
       "source": "/api/scan-logs/clear",
       "destination": "/api/clear-scan-logs.ts"
     },
