@@ -1,5 +1,5 @@
 import { db } from '../src/server/db.js';
-import { getEmailProviderStatus, isValidEmail, normalizeEmail, sendParticipantPassEmail } from './pass-email-utils.js';
+import { getEmailProviderStatus, isValidEmail, normalizeEmail, sendParticipantPassEmail } from '../src/server/pass-email-utils.js';
 
 function getParticipantId(req: any): string {
   const queryId = req.query?.id;
@@ -66,14 +66,7 @@ export default async function handler(req: any, res: any) {
 
   const event = await db.getEvent();
   const subject = `Your Entrance Pass: ${event?.eventName || 'Event'}`;
-  const log = await db.addEmailLog({
-    eventId: 'event-1',
-    participantId: participant.id,
-    participantName: participant.fullName,
-    recipientEmail: normalizeEmail(participant.email),
-    subject,
-    status: 'Sending'
-  });
+  const log = await db.addEmailLog({ eventId: 'event-1', participantId: participant.id, participantName: participant.fullName, recipientEmail: normalizeEmail(participant.email), subject, status: 'Sending' });
 
   try {
     const delivery = await sendParticipantPassEmail(req, participant, event, log.id, customMessage);
