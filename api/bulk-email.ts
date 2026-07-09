@@ -1,5 +1,5 @@
 import { db } from '../src/server/db.js';
-import { getEmailProviderStatus, isValidEmail, normalizeEmail, sendParticipantPassEmail } from './pass-email-utils.js';
+import { getEmailProviderStatus, isValidEmail, normalizeEmail, sendParticipantPassEmail } from '../src/server/pass-email-utils.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
@@ -16,18 +16,12 @@ export default async function handler(req: any, res: any) {
 
   const providerStatus = getEmailProviderStatus();
   if (!providerStatus.sendGrid && !providerStatus.smtp) {
-    res.status(500).json({
-      error: 'No real email provider configured. Add SENDGRID_API_KEY and SENDGRID_FROM in Vercel, or configure SMTP variables.',
-      providerStatus
-    });
+    res.status(500).json({ error: 'No real email provider configured. Add SENDGRID_API_KEY and SENDGRID_FROM in Vercel, or configure SMTP variables.', providerStatus });
     return;
   }
 
   if (!providerStatus.sender) {
-    res.status(500).json({
-      error: 'No sender address configured. Add SENDGRID_FROM or SMTP_FROM in Vercel using a verified sender email.',
-      providerStatus
-    });
+    res.status(500).json({ error: 'No sender address configured. Add SENDGRID_FROM or SMTP_FROM in Vercel using a verified sender email.', providerStatus });
     return;
   }
 
@@ -47,14 +41,7 @@ export default async function handler(req: any, res: any) {
       continue;
     }
 
-    const log = await db.addEmailLog({
-      eventId: 'event-1',
-      participantId: participant.id,
-      participantName: participant.fullName,
-      recipientEmail: normalizeEmail(participant.email),
-      subject,
-      status: 'Sending'
-    });
+    const log = await db.addEmailLog({ eventId: 'event-1', participantId: participant.id, participantName: participant.fullName, recipientEmail: normalizeEmail(participant.email), subject, status: 'Sending' });
 
     try {
       const delivery = await sendParticipantPassEmail(req, participant, event, log.id, customMessage);
@@ -66,13 +53,5 @@ export default async function handler(req: any, res: any) {
 
   const deliveredCount = results.filter((item) => item.success).length;
   const failedCount = results.length - deliveredCount;
-
-  res.status(failedCount > 0 && deliveredCount === 0 ? 500 : 200).json({
-    success: deliveredCount > 0,
-    delivered: deliveredCount,
-    failed: failedCount,
-    total: results.length,
-    simulated: false,
-    results
-  });
+  res.status(failedCount > 0 && deliveredCount === 0 ? 500 : 200).json({ success: deliveredCount > 0, delivered: deliveredCount, failed: failedCount, total: results.length, simulated: false, results });
 }
