@@ -9,9 +9,12 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/favicon.svg" />
     <title>EVENTZ</title>
+    <style>
+      .eventz-boot{min-height:100vh;background:#020617;color:white;display:flex;align-items:center;justify-content:center;font-family:Inter,Arial,sans-serif;overflow:hidden}.eventz-boot-card{position:relative;text-align:center}.eventz-boot-orbit{position:absolute;inset:-34px;border:1px dashed rgba(242,169,0,.45);border-radius:999px;animation:eventz-spin 7s linear infinite}.eventz-boot-ping{position:absolute;inset:-52px;border:1px solid rgba(242,169,0,.2);border-radius:999px;animation:eventz-ping 1.8s ease-out infinite}.eventz-boot-logo{width:92px;height:92px;border-radius:24px;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 25px 80px rgba(0,0,0,.35);position:relative;z-index:2}.eventz-boot-logo svg{width:72px;height:72px}.eventz-boot-title{margin-top:28px;font-size:12px;font-weight:900;letter-spacing:.34em}.eventz-boot-msg{margin-top:8px;font-size:12px;color:#94a3b8;font-weight:700}.eventz-boot-dots{display:flex;gap:6px;justify-content:center;margin-top:18px}.eventz-boot-dots span{width:7px;height:7px;border-radius:50%;background:#f2a900;animation:eventz-bounce 1s infinite}.eventz-boot-dots span:nth-child(2){animation-delay:.13s}.eventz-boot-dots span:nth-child(3){animation-delay:.26s}@keyframes eventz-spin{to{transform:rotate(360deg)}}@keyframes eventz-ping{0%{transform:scale(.75);opacity:.9}80%,100%{transform:scale(1.15);opacity:0}}@keyframes eventz-bounce{0%,100%{transform:translateY(0);opacity:.55}50%{transform:translateY(-7px);opacity:1}}
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div class="eventz-boot"><div class="eventz-boot-card"><div class="eventz-boot-ping"></div><div class="eventz-boot-orbit"></div><div class="eventz-boot-logo"><svg viewBox="0 0 128 128" aria-hidden="true"><rect width="128" height="128" rx="28" fill="#0b1f4d"/><path d="M30 82V46h46v13H46v9h28v13H46v1h31v14H30Z" fill="#fff"/><path d="M82 46h26L91 82h18v14H76l17-36H82V46Z" fill="#f2a900"/><path d="M24 101c24 13 60 11 85-4" fill="none" stroke="#f2a900" stroke-width="8" stroke-linecap="round"/></svg></div><div class="eventz-boot-title">EVENTZ</div><div class="eventz-boot-msg">Loading secure event access...</div><div class="eventz-boot-dots"><span></span><span></span><span></span></div></div></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
