@@ -15,6 +15,8 @@ function hashPassword(password: string): string {
 function safeUser(user: any) {
   if (!user) return user;
   const { passwordHash, ...rest } = user;
+  if (!rest.avatarUrl && rest.profileImage) rest.avatarUrl = rest.profileImage;
+  if (!rest.profileImage && rest.avatarUrl) rest.profileImage = rest.avatarUrl;
   return rest;
 }
 
@@ -50,9 +52,9 @@ async function getUsers() {
   if (supabase) {
     const { data, error } = await supabase.from('users').select('*').order('createdAt', { ascending: true });
     if (error) throw new Error(error.message);
-    return data || [];
+    return (data || []).map(safeUser);
   }
-  return readLocalDb().users || [];
+  return (readLocalDb().users || []).map(safeUser);
 }
 
 async function updateUser(id: string, updates: any) {
@@ -63,22 +65,21 @@ async function updateUser(id: string, updates: any) {
   if (Object.prototype.hasOwnProperty.call(updates, 'profileImage') || Object.prototype.hasOwnProperty.call(updates, 'avatarUrl') || Object.prototype.hasOwnProperty.call(updates, 'photoUrl')) {
     const profileImage = normalizeProfileImage(updates.profileImage || updates.avatarUrl || updates.photoUrl || '');
     cleaned.profileImage = profileImage;
-    cleaned.avatarUrl = profileImage;
   }
 
   const supabase = getSupabase();
   if (supabase) {
     const { data, error } = await supabase.from('users').update(cleaned).eq('id', id).select().maybeSingle();
     if (error) throw new Error(error.message);
-    return data;
+    return safeUser(data);
   }
 
   const db = readLocalDb();
   const index = (db.users || []).findIndex((u: any) => u.id === id);
   if (index === -1) return null;
-  db.users[index] = { ...db.users[index], ...cleaned };
+  db.users[index] = { ...db.users[index], ...cleaned, avatarUrl: cleaned.profileImage ?? db.users[index].avatarUrl };
   writeLocalDb(db);
-  return db.users[index];
+  return safeUser(db.users[index]);
 }
 
 async function createGateOfficer(input: any) {
@@ -91,13 +92,12 @@ async function createGateOfficer(input: any) {
   if (users.some((u: any) => String(u.email).toLowerCase() === email)) throw new Error('A user with this email already exists.');
 
   const profileImage = normalizeProfileImage(input.profileImage || input.avatarUrl || input.photoUrl || '') || '';
-  const newUser = {
+  const newUser: any = {
     id: `user-${Math.random().toString(36).slice(2, 9)}`,
     name,
     email,
     role: UserRole.GATE_OFFICER,
     profileImage,
-    avatarUrl: profileImage,
     passwordHash: hashPassword(password),
     createdAt: new Date().toISOString()
   };
@@ -106,14 +106,14 @@ async function createGateOfficer(input: any) {
   if (supabase) {
     const { error } = await supabase.from('users').insert(newUser);
     if (error) throw new Error(error.message);
-    return newUser;
+    return safeUser(newUser);
   }
 
   const db = readLocalDb();
   if (!db.users) db.users = [];
-  db.users.push(newUser);
+  db.users.push({ ...newUser, avatarUrl: profileImage });
   writeLocalDb(db);
-  return newUser;
+  return safeUser(newUser);
 }
 
 async function deleteGateOfficer(id: string) {
