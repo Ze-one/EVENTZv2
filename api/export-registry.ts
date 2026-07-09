@@ -97,57 +97,63 @@ function buildExcel(rows: Record<string, any>[], event: any) {
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
 
-async function buildPdf(rows: Record<string, any>[], event: any) {
-  const mod = await import('pdfkit');
-  const PDFDocument = (mod as any).default || mod;
-  const doc = new PDFDocument({ size: 'A4', margin: 36, layout: 'landscape' });
-  const chunks: Buffer[] = [];
-  doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+function pdfEscape(text: string) {
+  return text.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+}
 
-  doc.rect(0, 0, doc.page.width, 86).fill(BRAND.navy);
-  doc.fillColor('white').fontSize(30).font('Helvetica-Bold').text('EVENT', 40, 22, { continued: true });
-  doc.fillColor(BRAND.gold).text('Z');
-  doc.fillColor('#dbe4f0').fontSize(10).font('Helvetica-Bold').text(BRAND.slogan.toUpperCase(), 42, 58);
-  doc.fillColor('white').fontSize(14).text(safe(event?.eventName || 'Event Registry'), 420, 24, { align: 'right', width: doc.page.width - 460 });
-  doc.fillColor('#dbe4f0').fontSize(9).text(`${safe(event?.venue)} • ${safe(event?.eventDate)} ${safe(event?.eventTime)}`, 420, 48, { align: 'right', width: doc.page.width - 460 });
+function buildPdf(rows: Record<string, any>[], event: any) {
+  const lines = [
+    'EVENTZ',
+    BRAND.slogan,
+    `Event: ${safe(event?.eventName || 'Event Registry')}`,
+    `Venue: ${safe(event?.venue)}`,
+    `Date/Time: ${safe(event?.eventDate)} ${safe(event?.eventTime)}`,
+    `Generated: ${new Date().toLocaleString()}`,
+    `Total Participants: ${rows.length}`,
+    '',
+    'No | Full Name | Email | Phone | Category | Pass ID | Status',
+    ...rows.slice(0, 42).map((row) => `${row.No} | ${row['Full Name']} | ${row.Email} | ${row.Phone} | ${row.Category} | ${row['Pass ID']} | ${row.Status}`)
+  ];
+  if (rows.length > 42) lines.push(`... ${rows.length - 42} more rows available in CSV/Excel export.`);
 
-  let y = 112;
-  doc.fillColor(BRAND.navy).fontSize(12).font('Helvetica-Bold').text('Participant Registry', 40, y);
-  doc.fillColor('#64748b').fontSize(8).font('Helvetica').text(`Generated: ${new Date().toLocaleString()} • Total: ${rows.length}`, 40, y + 16);
-  y += 42;
+  let y = 555;
+  const content = [
+    'q',
+    '0.043 0.122 0.302 rg 0 760 612 82 re f',
+    '1 1 1 rg /F1 28 Tf 40 800 Td (EVENT) Tj',
+    '0.949 0.663 0 rg /F1 28 Tf 122 800 Td (Z) Tj',
+    'Q',
+    'BT /F1 12 Tf 40 735 Td (manage your event access by ETS.NTECH) Tj ET',
+    ...lines.map((line, index) => {
+      const size = index === 0 ? 18 : index < 7 ? 10 : 8;
+      const font = index === 0 || index === 8 ? '/F1' : '/F2';
+      const currentY = y - index * 13;
+      return `BT ${font} ${size} Tf 40 ${currentY} Td (${pdfEscape(line.slice(0, 130))}) Tj ET`;
+    })
+  ].join('\n');
 
-  const columns = [
-    ['No', 32], ['Full Name', 140], ['Email', 145], ['Phone', 82], ['Category', 82], ['Pass ID', 122], ['Status', 74], ['Checked In', 100]
-  ] as const;
-  const startX = 40;
-  const rowH = 22;
+  const objects = [
+    '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj',
+    '2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj',
+    '3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >> endobj',
+    '4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >> endobj',
+    '5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj',
+    `6 0 obj << /Length ${Buffer.byteLength(content, 'utf8')} >> stream\n${content}\nendstream endobj`
+  ];
 
-  const drawHeader = () => {
-    let x = startX;
-    doc.roundedRect(startX, y, doc.page.width - 80, rowH, 6).fill('#f1f5f9');
-    doc.fillColor(BRAND.navy).fontSize(7).font('Helvetica-Bold');
-    columns.forEach(([label, width]) => { doc.text(label, x + 4, y + 7, { width: width - 8, ellipsis: true }); x += width; });
-    y += rowH + 4;
-  };
-
-  drawHeader();
-  rows.forEach((row, index) => {
-    if (y > doc.page.height - 52) {
-      doc.addPage({ size: 'A4', layout: 'landscape', margin: 36 });
-      y = 42;
-      drawHeader();
-    }
-    let x = startX;
-    if (index % 2 === 0) doc.rect(startX, y - 2, doc.page.width - 80, rowH).fill('#fbfdff');
-    doc.fillColor('#0f172a').fontSize(7).font('Helvetica');
-    const values = [row.No, row['Full Name'], row.Email, row.Phone, row.Category, row['Pass ID'], row.Status, row['Checked In At']];
-    values.forEach((value, idx) => { doc.text(safe(value), x + 4, y + 4, { width: columns[idx][1] - 8, height: rowH - 4, ellipsis: true }); x += columns[idx][1]; });
-    y += rowH;
-  });
-
-  doc.fillColor('#94a3b8').fontSize(8).text(`${BRAND.name} • ${BRAND.slogan}`, 40, doc.page.height - 28, { align: 'center', width: doc.page.width - 80 });
-  doc.end();
-  return await new Promise<Buffer>((resolve) => doc.on('end', () => resolve(Buffer.concat(chunks))));
+  let pdf = '%PDF-1.4\n';
+  const offsets = [0];
+  for (const obj of objects) {
+    offsets.push(Buffer.byteLength(pdf, 'utf8'));
+    pdf += `${obj}\n`;
+  }
+  const xrefOffset = Buffer.byteLength(pdf, 'utf8');
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (let i = 1; i <= objects.length; i++) {
+    pdf += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
+  }
+  pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return Buffer.from(pdf, 'utf8');
 }
 
 export default async function handler(req: any, res: any) {
@@ -173,7 +179,7 @@ export default async function handler(req: any, res: any) {
     }
 
     if (format === 'pdf') {
-      const buffer = await buildPdf(rows, event);
+      const buffer = buildPdf(rows, event);
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${filename(event, 'pdf')}"`);
       res.status(200).send(buffer);
