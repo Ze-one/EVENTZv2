@@ -4,47 +4,51 @@
  */
 
 import React from 'react';
-import { TicketCheck } from 'lucide-react';
+import { EVENTZ_FULL_LOGO_DATA_URL } from '../assets/eventz-brand-logo.ts';
 
 interface LogoProps {
   className?: string;
   size?: 'sm' | 'md' | 'lg' | 'xl';
   variant?: 'light' | 'dark';
   onClick?: () => void;
+  iconOnly?: boolean;
+  animated?: boolean;
 }
 
-export default function Logo({ className = '', size = 'md', variant = 'light', onClick }: LogoProps) {
+export default function Logo({ className = '', size = 'md', variant = 'light', onClick, iconOnly = false, animated = false }: LogoProps) {
   const sizes = {
-    sm: { icon: 30, title: 'text-xl', slogan: 'text-[8px]', gap: 'gap-2' },
-    md: { icon: 42, title: 'text-3xl', slogan: 'text-[10px]', gap: 'gap-3' },
-    lg: { icon: 54, title: 'text-4xl', slogan: 'text-xs', gap: 'gap-4' },
-    xl: { icon: 72, title: 'text-6xl', slogan: 'text-sm', gap: 'gap-5' },
+    sm: { box: 'h-10 w-24', icon: 'h-10 w-10', text: 'h-10 w-32' },
+    md: { box: 'h-12 w-32', icon: 'h-12 w-12', text: 'h-12 w-40' },
+    lg: { box: 'h-16 w-44', icon: 'h-16 w-16', text: 'h-16 w-56' },
+    xl: { box: 'h-24 w-64', icon: 'h-24 w-24', text: 'h-24 w-80' },
   };
-
   const currentSize = sizes[size];
-  const isLight = variant === 'light';
+
+  if (iconOnly) {
+    return (
+      <div
+        onClick={onClick}
+        className={`relative flex items-center justify-center rounded-2xl bg-white shadow-lg border border-slate-100 overflow-hidden ${currentSize.icon} ${onClick ? 'cursor-pointer' : ''} ${animated ? 'animate-soft-pulse' : ''} ${className}`}
+        aria-label="EVENTZ"
+      >
+        <img src={EVENTZ_FULL_LOGO_DATA_URL} alt="EVENTZ" className="w-full h-full object-contain p-1.5" />
+      </div>
+    );
+  }
 
   return (
     <div
-      className={`group inline-flex items-center ${currentSize.gap} select-none ${onClick ? 'cursor-pointer' : ''} ${className}`}
+      className={`group inline-flex items-center select-none ${onClick ? 'cursor-pointer' : ''} ${className}`}
       onClick={onClick}
       aria-label="EVENTZ - manage your event access by ETS.NTECH"
     >
-      <div
-        className="relative flex items-center justify-center rounded-2xl bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 shadow-lg ring-1 ring-white/10 transition-transform duration-300 group-hover:scale-[1.03]"
-        style={{ width: currentSize.icon, height: currentSize.icon }}
-      >
-        <TicketCheck className="text-yellow-400" size={Math.round(currentSize.icon * 0.55)} strokeWidth={2.5} />
-        <div className="absolute -bottom-1 -right-1 h-3 w-3 rounded-full bg-yellow-400 ring-2 ring-white/80" />
-      </div>
-
-      <div className="flex flex-col leading-none">
-        <div className={`font-black tracking-[-0.08em] ${currentSize.title} ${isLight ? 'text-white' : 'text-slate-950'}`}>
-          EVENT<span className="text-yellow-400 tracking-[-0.1em]">Z</span>
-        </div>
-        <div className={`mt-1 font-bold uppercase tracking-[0.18em] ${currentSize.slogan} ${isLight ? 'text-slate-300' : 'text-slate-500'}`}>
-          manage your event access by <span className="text-yellow-500">ETS.NTECH</span>
-        </div>
+      <div className={`relative ${currentSize.box} ${animated ? 'animate-soft-pulse' : ''}`}>
+        <img
+          src={EVENTZ_FULL_LOGO_DATA_URL}
+          alt="EVENTZ - manage your event access by ETS.NTECH"
+          className="w-full h-full object-contain drop-shadow-sm transition-transform duration-300 group-hover:scale-[1.03]"
+        />
+        {variant === 'light' && <div className="absolute inset-0 rounded-2xl ring-1 ring-white/5 pointer-events-none" />}
       </div>
     </div>
   );
