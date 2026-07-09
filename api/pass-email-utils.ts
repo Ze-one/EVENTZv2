@@ -4,30 +4,11 @@ import QRCode from 'qrcode';
 import { db } from '../src/server/db.js';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const BRAND = {
-  name: 'EVENTZ',
-  slogan: 'manage your event access by ETS.NTECH',
-  navy: '#0b1f4d',
-  gold: '#f2a900'
-};
+const BRAND = { name: 'EVENTZ', slogan: 'manage your event access by ETS.NTECH', navy: '#0b1f4d', gold: '#f2a900' };
 
-export function normalizeEmail(value: unknown): string {
-  return String(value || '').trim().toLowerCase();
-}
-
-export function isValidEmail(value: unknown): boolean {
-  const email = normalizeEmail(value);
-  return EMAIL_REGEX.test(email);
-}
-
-function escapeHtml(value: unknown): string {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
+export function normalizeEmail(value: unknown): string { return String(value || '').trim().toLowerCase(); }
+export function isValidEmail(value: unknown): boolean { return EMAIL_REGEX.test(normalizeEmail(value)); }
+function escapeHtml(value: unknown): string { return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;'); }
 
 function getAppOrigin(req: any): string {
   const configured = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL;
@@ -54,113 +35,92 @@ function getSender(event: any) {
 }
 
 export function getEmailProviderStatus() {
-  return {
-    sendGrid: Boolean(process.env.SENDGRID_API_KEY),
-    smtp: Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS),
-    sender: Boolean(process.env.SENDGRID_FROM || process.env.SMTP_FROM || process.env.MAIL_FROM || process.env.SMTP_USER),
-  };
+  return { sendGrid: Boolean(process.env.SENDGRID_API_KEY), smtp: Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS), sender: Boolean(process.env.SENDGRID_FROM || process.env.SMTP_FROM || process.env.MAIL_FROM || process.env.SMTP_USER) };
 }
 
-function brandHeaderHtml() {
-  return `
-    <div style="background:#fff;border-radius:18px;padding:16px 18px;display:inline-block;margin-bottom:18px;box-shadow:0 12px 30px rgba(15,23,42,.12);border:1px solid rgba(226,232,240,.8);">
-      <div style="font-size:38px;line-height:1;font-weight:900;letter-spacing:-2px;color:${BRAND.navy};font-family:Arial Black,Arial,Helvetica,sans-serif;">
-        EVENT<span style="color:${BRAND.gold};">Z</span>
-      </div>
-      <div style="border-top:2px solid ${BRAND.navy};margin:9px 0 7px;position:relative;"></div>
-      <div style="font-size:10px;font-weight:800;letter-spacing:.8px;color:${BRAND.navy};text-transform:uppercase;">
-        manage your event access by <span style="color:${BRAND.gold};">ETS.NTECH</span>
-      </div>
-    </div>`;
+function getDesign(event: any) {
+  const fallback = { backgroundColor: '#d8dcdf', topBarColor: '#d8dcdf', brandPanelColor: '#ffffff', textColor: '#020617', mutedTextColor: '#475569', logoBlockColor: '#ffffff', qrFrameColor: '#ffffff', primaryColor: event?.primaryColor || BRAND.navy, accentColor: event?.accentColor || BRAND.gold, slogan: BRAND.slogan, customLogoDataUrl: '', logoFit: 'contain' };
+  try {
+    const parsed = JSON.parse(event?.logoPath || '{}');
+    if (parsed?.type === 'eventz-pass-design') return { ...fallback, ...parsed };
+  } catch {}
+  return fallback;
 }
 
-function buildEmailHtml(participant: any, event: any, customMessage: string | undefined, verifyUrl: string) {
-  const primaryColor = event?.primaryColor || BRAND.navy;
-  const accentColor = event?.accentColor || BRAND.gold;
-  const messageHtml = customMessage?.trim()
-    ? `<div style="background:#f1f5f9;border-left:4px solid ${primaryColor};padding:14px 18px;margin:24px 0;text-align:left;border-radius:0 12px 12px 0;">
-        <div style="font-size:10px;text-transform:uppercase;font-weight:800;letter-spacing:1px;color:#64748b;margin-bottom:6px;">Message from Organizer</div>
-        <p style="margin:0;font-size:13px;color:#1e293b;line-height:1.5;font-style:italic;">${escapeHtml(customMessage).replace(/\n/g, '<br>')}</p>
-      </div>`
-    : '';
+function parseDataUrl(dataUrl?: string) {
+  const match = String(dataUrl || '').match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return null;
+  return { mime: match[1], base64: match[2] };
+}
 
-  return `<!doctype html>
-<html>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Your Event Entrance Pass</title></head>
-<body style="font-family:Arial,Helvetica,sans-serif;background:#f8fafc;margin:0;padding:0;">
-  <div style="max-width:540px;margin:32px auto;background:#fff;border-radius:28px;overflow:hidden;border:1px solid #e2e8f0;box-shadow:0 10px 30px rgba(15,23,42,.08);">
-    <div style="background:${primaryColor};color:#fff;text-align:center;padding:28px 24px 32px;">
-      ${brandHeaderHtml()}
-      <div style="display:inline-block;margin:2px 0 12px;padding:6px 13px;border-radius:10px;background:rgba(255,255,255,.14);color:${accentColor};font-size:10px;font-weight:900;letter-spacing:1px;text-transform:uppercase;">${escapeHtml(event?.passTitle || 'EVENT PASS')}</div>
-      <h1 style="font-size:22px;line-height:1.3;margin:0 0 8px;font-weight:900;">${escapeHtml(event?.eventName || 'Event')}</h1>
-      <div style="font-size:12px;opacity:.85;line-height:1.5;">${escapeHtml(event?.venue || '')}<br>${escapeHtml(event?.eventDate || '')} ${escapeHtml(event?.eventTime || '')}</div>
-    </div>
+function buildEmailHtml(participant: any, event: any, customMessage: string | undefined, verifyUrl: string, hasLogo: boolean) {
+  const design = getDesign(event);
+  const logoHtml = hasLogo
+    ? `<img src="cid:eventzBrandLogo" width="110" height="64" alt="EVENTZ" style="display:block;max-width:110px;max-height:64px;width:110px;height:64px;object-fit:${escapeHtml(design.logoFit)};" />`
+    : `<div style="font-weight:900;color:#fff;font-size:20px;letter-spacing:-1px;">event<span style="color:${design.accentColor};">Z</span></div>`;
+  const messageHtml = customMessage?.trim() ? `<div style="background:#fff;border-left:4px solid ${design.accentColor};padding:12px 14px;margin:16px 0;border-radius:0 10px 10px 0;text-align:left;"><b style="font-size:10px;color:${design.mutedTextColor};text-transform:uppercase;">Message from Organizer</b><p style="margin:6px 0 0;color:${design.textColor};font-size:13px;line-height:1.5;">${escapeHtml(customMessage).replace(/\n/g, '<br>')}</p></div>` : '';
 
-    <div style="padding:30px 28px;text-align:center;">
-      <p style="font-size:14px;color:#475569;line-height:1.6;margin:0;">Hello <b>${escapeHtml(participant.fullName)}</b>,<br>Your official EVENTZ entrance pass has been generated. Please present this QR code at the entrance.</p>
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>EVENTZ Pass</title></head>
+  <body style="font-family:Arial,Helvetica,sans-serif;background:#f8fafc;margin:0;padding:24px;">
+    <div style="max-width:430px;margin:auto;background:${design.backgroundColor};border-radius:32px;overflow:hidden;border:1px solid #cbd5e1;box-shadow:0 20px 50px rgba(15,23,42,.12);">
+      <div style="height:116px;background:${design.topBarColor};position:relative;padding:18px 24px;box-sizing:border-box;">
+        <div style="width:112px;height:78px;background:${design.logoBlockColor};display:flex;align-items:center;justify-content:center;padding:8px;box-sizing:border-box;overflow:hidden;">${logoHtml}</div>
+        <div style="position:absolute;right:24px;top:20px;text-align:right;color:${design.textColor};"><div style="font-size:11px;font-weight:900;text-transform:uppercase;">Start Date</div><div style="font-size:20px;">${escapeHtml(event?.eventDate || '')}</div><div style="font-size:13px;font-weight:700;color:${design.mutedTextColor};">${escapeHtml(event?.eventTime || '')}</div></div>
+      </div>
+      <div style="background:${design.brandPanelColor};padding:24px;display:flex;align-items:center;gap:16px;">
+        <div style="width:72px;height:72px;border-radius:50%;border:12px solid ${design.primaryColor};box-sizing:border-box;border-right-color:${design.accentColor};"></div>
+        <div><div style="font-size:42px;font-weight:300;letter-spacing:6px;line-height:1;color:${design.primaryColor};">EVENT<span style="font-weight:900;color:${design.accentColor};">Z</span></div><div style="font-size:9px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:${design.mutedTextColor};margin-top:8px;">${escapeHtml(design.slogan)}</div></div>
+      </div>
+      <div style="padding:26px 28px;color:${design.textColor};display:grid;grid-template-columns:1fr 1fr;gap:34px 28px;">
+        <div><b style="font-size:12px;text-transform:uppercase;">Event</b><div style="font-size:22px;line-height:1.1;margin-top:6px;">${escapeHtml(event?.eventName || 'Event')}</div></div>
+        <div><b style="font-size:12px;text-transform:uppercase;">Attendee</b><div style="font-size:22px;line-height:1.1;margin-top:6px;">${escapeHtml(participant.fullName)}</div></div>
+        <div><b style="font-size:12px;text-transform:uppercase;">Ticket</b><div style="font-size:22px;line-height:1.1;margin-top:6px;">${escapeHtml(participant.category || event?.passTitle || 'Attendee')}</div></div>
+        <div><b style="font-size:12px;text-transform:uppercase;">Pass ID</b><div style="font-family:monospace;font-size:15px;font-weight:800;margin-top:8px;word-break:break-all;">${escapeHtml(participant.passId)}</div></div>
+      </div>
       ${messageHtml}
-      <div style="background:#f8fafc;border:1px dashed #cbd5e1;border-radius:22px;padding:22px;margin:24px 0;">
-        <h2 style="font-size:22px;color:#0f172a;margin:0 0 6px;font-weight:900;">${escapeHtml(participant.fullName)}</h2>
-        <div style="display:inline-block;font-family:monospace;font-size:12px;font-weight:800;color:${accentColor};background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:5px 12px;margin-bottom:18px;letter-spacing:1px;">${escapeHtml(participant.passId)}</div>
-        <div style="background:#fff;display:inline-block;border:1px solid #e2e8f0;border-radius:16px;padding:14px;">
-          <img src="cid:qrCodeImage" width="190" height="190" alt="Entrance Pass QR Code" style="display:block;width:190px;height:190px;" />
-        </div>
-        <p style="font-size:11px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:1px;line-height:1.5;margin:18px 0 0;">${escapeHtml(event?.accessInstruction || 'Scan this pass at the entrance gate.')}</p>
+      <div style="text-align:center;padding:20px 0 30px;">
+        <div style="background:${design.qrFrameColor};border-radius:10px;display:inline-block;padding:18px;box-shadow:0 4px 16px rgba(15,23,42,.08);"><img src="cid:qrCodeImage" width="210" height="210" alt="Entrance Pass QR Code" style="display:block;width:210px;height:210px;" /><div style="font-family:monospace;font-size:17px;margin-top:8px;color:${design.textColor};">${escapeHtml(participant.passId)}</div></div>
+        <p style="font-size:11px;font-weight:700;color:${design.mutedTextColor};padding:0 28px;line-height:1.4;">${escapeHtml(event?.accessInstruction || 'Present this QR code at the entrance for verification.')}</p>
+        <a href="${escapeHtml(verifyUrl)}" style="display:inline-block;background:${design.primaryColor};color:#fff;text-decoration:none;border-radius:12px;padding:11px 16px;font-size:12px;font-weight:900;">Open Verification Link</a>
       </div>
-      <a href="${escapeHtml(verifyUrl)}" style="display:inline-block;background:${primaryColor};color:#fff;text-decoration:none;border-radius:12px;padding:12px 18px;font-size:12px;font-weight:800;">Open Verification Link</a>
     </div>
-
-    <div style="background:#0f172a;color:#94a3b8;text-align:center;padding:18px;font-size:10px;font-family:monospace;">
-      <div>${BRAND.name} • ${BRAND.slogan}</div>
-      <div style="margin-top:5px;">${escapeHtml(event?.footerNote || 'Generated by ETSNTECH Event Access System.')}</div>
-    </div>
-  </div>
-</body>
-</html>`;
+  </body></html>`;
 }
 
 export async function sendParticipantPassEmail(req: any, participant: any, event: any, logId: string, customMessage?: string) {
   const recipient = normalizeEmail(participant?.email);
   if (!isValidEmail(recipient)) throw new Error(`Invalid participant email address: ${participant?.email || 'empty'}`);
-
   const verifyUrl = `${getAppOrigin(req)}/verify/${encodeURIComponent(participant.passId)}`;
   const qrDataUrl = await QRCode.toDataURL(verifyUrl, { margin: 1, width: 320, color: { dark: '#0f172a', light: '#ffffff' } });
   const qrBase64 = qrDataUrl.split('base64,')[1];
+  const design = getDesign(event);
+  const logo = parseDataUrl(design.customLogoDataUrl);
   const subject = `Your Entrance Pass: ${event?.eventName || 'Event'}`;
   const sender = getSender(event);
-  const html = buildEmailHtml(participant, event, customMessage, verifyUrl);
+  const html = buildEmailHtml(participant, event, customMessage, verifyUrl, Boolean(logo));
+  const sendGridAttachments: any[] = [{ content: qrBase64, filename: 'eventz-pass-qr.png', type: 'image/png', disposition: 'inline', content_id: 'qrCodeImage' }];
+  const smtpAttachments: any[] = [{ filename: 'eventz-pass-qr.png', content: Buffer.from(qrBase64, 'base64'), cid: 'qrCodeImage' }];
+  if (logo) {
+    const ext = logo.mime.includes('png') ? 'png' : logo.mime.includes('webp') ? 'webp' : 'jpg';
+    sendGridAttachments.push({ content: logo.base64, filename: `eventz-brand-logo.${ext}`, type: logo.mime, disposition: 'inline', content_id: 'eventzBrandLogo' });
+    smtpAttachments.push({ filename: `eventz-brand-logo.${ext}`, content: Buffer.from(logo.base64, 'base64'), cid: 'eventzBrandLogo' });
+  }
 
   try {
     if (process.env.SENDGRID_API_KEY) {
       sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-      const [result] = await sgMail.send({
-        to: recipient,
-        from: sender,
-        replyTo: sender,
-        subject,
-        html,
-        attachments: [{ content: qrBase64, filename: 'eventz-pass-qr.png', type: 'image/png', disposition: 'inline', content_id: 'qrCodeImage' }]
-      } as any);
+      const [result] = await sgMail.send({ to: recipient, from: sender, replyTo: sender, subject, html, attachments: sendGridAttachments } as any);
       const sendGridResult = result as any;
       await db.updateEmailLogStatus(logId, 'Delivered');
       return { provider: 'sendgrid', statusCode: sendGridResult?.statusCode || 202, messageId: sendGridResult?.headers?.['x-message-id'] || sendGridResult?.id || null };
     }
-
     if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
       const port = parseInt(process.env.SMTP_PORT || '587', 10);
       const transporter = nodemailer.createTransport({ host: process.env.SMTP_HOST, port, secure: port === 465, auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } });
-      const result = await transporter.sendMail({
-        from: `"${sender.name}" <${sender.email}>`,
-        replyTo: `"${sender.name}" <${sender.email}>`,
-        to: recipient,
-        subject,
-        html,
-        attachments: [{ filename: 'eventz-pass-qr.png', content: Buffer.from(qrBase64, 'base64'), cid: 'qrCodeImage' }]
-      });
+      const result = await transporter.sendMail({ from: `"${sender.name}" <${sender.email}>`, replyTo: `"${sender.name}" <${sender.email}>`, to: recipient, subject, html, attachments: smtpAttachments });
       await db.updateEmailLogStatus(logId, 'Delivered');
       return { provider: 'smtp', messageId: result.messageId, accepted: result.accepted, rejected: result.rejected };
     }
-
     throw new Error('No real email provider configured. Add SENDGRID_API_KEY + SENDGRID_FROM, or SMTP_HOST + SMTP_USER + SMTP_PASS + SMTP_FROM in Vercel.');
   } catch (error: any) {
     const providerBody = error?.response?.body ? JSON.stringify(error.response.body) : '';
