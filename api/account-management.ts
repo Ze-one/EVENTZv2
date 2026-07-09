@@ -20,6 +20,18 @@ function safeUser(user: any) {
   return rest;
 }
 
+function isMissingPhotoColumnError(error: any) {
+  const message = String(error?.message || error || '').toLowerCase();
+  return message.includes('profileimage') && (message.includes('schema cache') || message.includes('column'));
+}
+
+function profileColumnSetupError() {
+  const error: any = new Error('Profile photo storage is not yet enabled in Supabase. Add the profileImage column to the users table, then try again. SQL: alter table users add column if not exists "profileImage" text;');
+  error.code = 'PROFILE_IMAGE_COLUMN_MISSING';
+  error.sql = 'alter table users add column if not exists "profileImage" text;';
+  return error;
+}
+
 function normalizeProfileImage(value: unknown): string | undefined {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -59,18 +71,19 @@ async function getUsers() {
 
 async function updateUser(id: string, updates: any) {
   const cleaned: any = {};
+  const hasPhotoUpdate = Object.prototype.hasOwnProperty.call(updates, 'profileImage') || Object.prototype.hasOwnProperty.call(updates, 'avatarUrl') || Object.prototype.hasOwnProperty.call(updates, 'photoUrl');
   if (updates.name) cleaned.name = String(updates.name).trim();
   if (updates.email) cleaned.email = String(updates.email).trim().toLowerCase();
   if (updates.password) cleaned.passwordHash = hashPassword(String(updates.password));
-  if (Object.prototype.hasOwnProperty.call(updates, 'profileImage') || Object.prototype.hasOwnProperty.call(updates, 'avatarUrl') || Object.prototype.hasOwnProperty.call(updates, 'photoUrl')) {
-    const profileImage = normalizeProfileImage(updates.profileImage || updates.avatarUrl || updates.photoUrl || '');
-    cleaned.profileImage = profileImage;
-  }
+  if (hasPhotoUpdate) cleaned.profileImage = normalizeProfileImage(updates.profileImage || updates.avatarUrl || updates.photoUrl || '');
 
   const supabase = getSupabase();
   if (supabase) {
     const { data, error } = await supabase.from('users').update(cleaned).eq('id', id).select().maybeSingle();
-    if (error) throw new Error(error.message);
+    if (error) {
+      if (hasPhotoUpdate && isMissingPhotoColumnError(error)) throw profileColumnSetupError();
+      throw new Error(error.message);
+    }
     return safeUser(data);
   }
 
@@ -92,20 +105,16 @@ async function createGateOfficer(input: any) {
   if (users.some((u: any) => String(u.email).toLowerCase() === email)) throw new Error('A user with this email already exists.');
 
   const profileImage = normalizeProfileImage(input.profileImage || input.avatarUrl || input.photoUrl || '') || '';
-  const newUser: any = {
-    id: `user-${Math.random().toString(36).slice(2, 9)}`,
-    name,
-    email,
-    role: UserRole.GATE_OFFICER,
-    profileImage,
-    passwordHash: hashPassword(password),
-    createdAt: new Date().toISOString()
-  };
+  const newUser: any = { id: `user-${Math.random().toString(36).slice(2, 9)}`, name, email, role: UserRole.GATE_OFFICER, passwordHash: hashPassword(password), createdAt: new Date().toISOString() };
+  if (profileImage) newUser.profileImage = profileImage;
 
   const supabase = getSupabase();
   if (supabase) {
     const { error } = await supabase.from('users').insert(newUser);
-    if (error) throw new Error(error.message);
+    if (error) {
+      if (isMissingPhotoColumnError(error)) throw profileColumnSetupError();
+      throw new Error(error.message);
+    }
     return safeUser(newUser);
   }
 
@@ -165,6 +174,7 @@ export default async function handler(req: any, res: any) {
     res.setHeader('Allow', 'GET, POST, PUT, DELETE');
     res.status(405).json({ error: 'Method not allowed' });
   } catch (error: any) {
-    res.status(400).json({ error: error?.message || 'Account management request failed.' });
+    const status = error?.code === 'PROFILE_IMAGE_COLUMN_MISSING' ? 409 : 400;
+    res.status(status).json({ error: error?.message || 'Account management request failed.', code: error?.code, sql: error?.sql });
   }
 }
