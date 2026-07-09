@@ -28,6 +28,8 @@ export interface User {
   email: string;
   role: UserRole;
   passwordHash: string;
+  profileImage?: string;
+  avatarUrl?: string;
   createdAt: string;
 }
 
@@ -66,8 +68,10 @@ export interface Participant {
   checkedInAt?: string;
   checkedInBy?: string;
   createdAt: string;
-  updatedAt: string;  lastEmailStatus?: 'Queued' | 'Sending' | 'Delivered' | 'Failed';
-  lastEmailError?: string | null;}
+  updatedAt: string;
+  lastEmailStatus?: 'Queued' | 'Sending' | 'Delivered' | 'Failed';
+  lastEmailError?: string | null;
+}
 
 export interface ScanLog {
   id: string;
