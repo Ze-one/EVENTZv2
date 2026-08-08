@@ -15,6 +15,31 @@
   </head>
   <body>
     <div id="root"><div class="eventz-boot"><div class="eventz-boot-card"><div class="eventz-boot-logo"><svg viewBox="0 0 128 128" aria-hidden="true"><rect width="128" height="128" rx="28" fill="#0b1f4d"/><path d="M30 82V46h46v13H46v9h28v13H46v1h31v14H30Z" fill="#fff"/><path d="M82 46h26L91 82h18v14H76l17-36H82V46Z" fill="#f2a900"/><path d="M24 101c24 13 60 11 85-4" fill="none" stroke="#f2a900" stroke-width="8" stroke-linecap="round"/></svg></div><div class="eventz-boot-title">EVENTZ</div><div class="eventz-boot-msg">Opening...</div></div></div></div>
+    <script>
+      (function () {
+        var originalOpen = window.open;
+        function cleanWhatsAppUrl(url) {
+          try {
+            var parsed = new URL(String(url), window.location.origin);
+            if (!/wa\.me$|whatsapp\.com$/i.test(parsed.hostname)) return url;
+            var text = parsed.searchParams.get('text');
+            if (!text) return url;
+            var cleaned = text
+              .replace(/Please present this pass ID or QR verification link at the entrance:\s*/i, 'Please present this pass message or the attached/shared pass at the entrance for verification.\n')
+              .replace(/https?:\/\/[^\s]+\/verify\/[^\s]+/gi, '')
+              .replace(/\n{3,}/g, '\n\n')
+              .trim();
+            parsed.searchParams.set('text', cleaned);
+            return parsed.toString();
+          } catch (error) {
+            return url;
+          }
+        }
+        window.open = function (url, target, features) {
+          return originalOpen.call(window, cleanWhatsAppUrl(url), target, features);
+        };
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
