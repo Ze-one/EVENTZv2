@@ -5,7 +5,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Participant, EventDetails, PassStatus, EmailLog } from '../types.js';
-import { Search, ShieldAlert, UserCheck, Trash2, RotateCcw, X, Mail, Send, RefreshCcw } from 'lucide-react';
+import { Search, ShieldAlert, UserCheck, Trash2, RotateCcw, X, Mail, Send, RefreshCcw, MessageCircle } from 'lucide-react';
 import EventPassCard from './EventPassCard.tsx';
 
 interface ParticipantsListViewProps {
@@ -89,6 +89,56 @@ export default function ParticipantsListView({
   }), [participants, searchTerm, statusFilter, categoryFilter]);
 
   const isAllSelected = filteredList.length > 0 && filteredList.every(p => selectedParticipantIds.includes(p.id));
+
+  const normalizeWhatsAppPhone = (phone: string) => {
+    const digits = String(phone || '').replace(/\D/g, '');
+    if (!digits) return '';
+    if (digits.startsWith('237')) return digits;
+    if (digits.length === 9) return `237${digits}`;
+    return digits;
+  };
+
+  const eventValue = (keys: string[], fallback = '') => {
+    const eventAny = event as any;
+    for (const key of keys) {
+      const value = String(eventAny?.[key] || '').trim();
+      if (value) return value;
+    }
+    return fallback;
+  };
+
+  const buildWhatsAppPassMessage = (participant: Participant) => {
+    const eventName = eventValue(['eventName', 'name', 'title', 'eventTitle'], 'the event');
+    const venue = eventValue(['venue', 'location', 'eventLocation', 'address']);
+    const eventDate = eventValue(['eventDate', 'date', 'startDate', 'scheduledAt']);
+    const verifyLink = `${window.location.origin}/verify/${encodeURIComponent(participant.passId)}`;
+    return [
+      `Hello ${participant.fullName},`,
+      '',
+      `Your EVENTZ access pass for ${eventName} is ready.`,
+      '',
+      `Name: ${participant.fullName}`,
+      `Pass ID: ${participant.passId}`,
+      `Category: ${participant.category || 'Attendee'}`,
+      participant.organization ? `Organization: ${participant.organization}` : '',
+      eventDate ? `Event Date: ${eventDate}` : '',
+      venue ? `Venue: ${venue}` : '',
+      '',
+      `Please present this pass ID or QR verification link at the entrance:`,
+      verifyLink,
+      '',
+      'Keep this message safe and accessible on the event day.',
+      '',
+      'EVENTZ - manage your event access by ETS.NTECH'
+    ].filter(Boolean).join('\n');
+  };
+
+  const openWhatsAppPassShare = (participant: Participant) => {
+    const phone = normalizeWhatsAppPhone(participant.phone || '');
+    const message = encodeURIComponent(buildWhatsAppPassMessage(participant));
+    const url = phone ? `https://wa.me/${phone}?text=${message}` : `https://wa.me/?text=${message}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
 
   const getParticipantEmailStatus = (participant: Participant) => {
     const latestLog = [...emailLogs]
@@ -248,6 +298,7 @@ export default function ParticipantsListView({
                         <button onClick={() => setSelectedParticipant(p)} className="px-2 py-1 text-slate-700 hover:text-slate-900 font-bold rounded hover:bg-slate-50 border border-slate-200 transition-all" title="View / Print Card">View Card</button>
                         <button onClick={() => handleRegeneratePass(p)} disabled={regeneratingId === p.id} className="p-1.5 text-slate-400 hover:text-yellow-600 hover:bg-yellow-50 disabled:opacity-50 rounded-lg transition-all" title="Regenerate this attendee pass ID and QR"><RefreshCcw size={14} className={regeneratingId === p.id ? 'animate-spin' : ''} /></button>
                         {onSendEmail && <button onClick={() => setEmailConfirmParticipant(p)} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-all" title="Share Pass via Email"><Mail size={14} /></button>}
+                        <button onClick={() => openWhatsAppPassShare(p)} className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all" title={p.phone ? 'Send Pass via WhatsApp' : 'Open WhatsApp with prefilled pass message'}><MessageCircle size={14} /></button>
                         {p.status === PassStatus.USED ? <button onClick={() => onResetCheckIn(p.id)} className="p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all" title="Reset Entrance Check"><RotateCcw size={14} /></button> : <button onClick={() => onUpdateParticipant(p.id, { status: PassStatus.USED, checkedInAt: new Date().toISOString(), checkedInBy: 'Admin Board' })} className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-slate-100 rounded-lg transition-all" title="Mark manual check-in"><UserCheck size={14} /></button>}
                         <button onClick={() => setDeleteConfirmInfo({ isOpen: true, type: 'single', participantId: p.id, fullName: p.fullName })} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-slate-100 rounded-lg transition-all" title="Delete Attendee"><Trash2 size={14} /></button>
                       </div>
@@ -265,7 +316,11 @@ export default function ParticipantsListView({
           <div className="bg-white rounded-3xl p-6 shadow-2xl relative w-full max-w-md max-h-[90vh] overflow-y-auto no-scrollbar border border-slate-100 text-left space-y-4">
             <button onClick={() => setSelectedParticipant(null)} className="absolute top-4 right-4 p-1.5 bg-slate-50 border border-slate-100 text-slate-400 hover:text-slate-700 rounded-lg transition-all"><X size={15} /></button>
             <div className="space-y-1"><h3 className="font-extrabold text-slate-800 text-sm">Attendee Pass Preview</h3><p className="text-[10px] text-slate-400">Generate, test, print, or download individual participant credential</p></div>
-            <div className="border-t border-slate-50 pt-3 space-y-4"><EventPassCard participant={selectedParticipant} event={event} /><button type="button" onClick={() => { const part = selectedParticipant; setSelectedParticipant(null); setEmailConfirmParticipant(part); }} className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition-all shadow flex items-center justify-center gap-1.5"><Mail size={14} /> Share Pass via Email</button></div>
+            <div className="border-t border-slate-50 pt-3 space-y-3">
+              <EventPassCard participant={selectedParticipant} event={event} />
+              <button type="button" onClick={() => openWhatsAppPassShare(selectedParticipant)} className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-all shadow flex items-center justify-center gap-1.5"><MessageCircle size={14} /> Send via WhatsApp</button>
+              <button type="button" onClick={() => { const part = selectedParticipant; setSelectedParticipant(null); setEmailConfirmParticipant(part); }} className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition-all shadow flex items-center justify-center gap-1.5"><Mail size={14} /> Share Pass via Email</button>
+            </div>
           </div>
         </div>
       )}
