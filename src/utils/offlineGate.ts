@@ -1,3 +1,5 @@
+import { eventzAuthHeaders } from './auth.js';
+
 export type GateDirection = 'entry' | 'exit';
 
 type OfflinePass = {
@@ -106,7 +108,7 @@ export function getOfflineGateStatus() {
 }
 
 export async function refreshOfflineManifest() {
-  const response = await fetch('/api/offline-manifest', { cache: 'no-store' });
+  const response = await fetch('/api/offline-manifest', { cache: 'no-store', headers: eventzAuthHeaders() });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Unable to download offline pass manifest.');
   writeJson(MANIFEST_KEY, data);
@@ -245,7 +247,7 @@ export async function syncOfflineQueue() {
 
   const response = await fetch('/api/offline-sync', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: eventzAuthHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ transactions: queue })
   });
   const data = await response.json();
