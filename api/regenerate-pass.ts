@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { db } from '../src/server/db.js';
 import { PassStatus, ScanResult } from '../src/types.js';
+import { requireSession } from '../src/server/session-auth.js';
 
 function makePassId(indexHint: number) {
   const formatted = String(Math.max(1, indexHint)).padStart(4, '0');
@@ -22,6 +23,12 @@ export default async function handler(req: any, res: any) {
     if (req.method !== 'POST') {
       res.setHeader('Allow', 'POST');
       res.status(405).json({ error: 'Method not allowed.' });
+      return;
+    }
+
+    const auth = requireSession(req, ['admin']);
+    if (!auth.ok) {
+      res.status(auth.status).json({ error: auth.error });
       return;
     }
 
