@@ -7,6 +7,7 @@ import React, { useEffect, useState } from 'react';
 import { ScanLog, Participant, ScanResult, EmailLog } from '../types.js';
 import { BarChart2, ShieldAlert, CheckCircle2, Trash2, Calendar, Search, ShieldCheck, Mail, Send, AlertTriangle, RefreshCw } from 'lucide-react';
 import ExportReportMenu from './ExportReportMenu.tsx';
+import { eventzAuthHeaders } from '../utils/auth.js';
 
 interface ReportsViewProps {
   scanLogs: ScanLog[];
@@ -37,7 +38,7 @@ export default function ReportsView({ scanLogs, participants, emailLogs, onClear
   const loadSecurityAlerts = async () => {
     setSecurityLoading(true);
     try {
-      const res = await fetch('/api/security-alerts', { cache: 'no-store' });
+      const res = await fetch('/api/security-alerts', { cache: 'no-store', headers: eventzAuthHeaders() });
       const data = await res.json();
       if (res.ok) setSecurityAlerts(Array.isArray(data) ? data : []);
     } catch {
@@ -187,7 +188,7 @@ export default function ReportsView({ scanLogs, participants, emailLogs, onClear
                           const user = rawUser ? JSON.parse(rawUser) : null;
                           const res = await fetch(`/api/security-alerts/${encodeURIComponent(alert.id)}/resolve`, {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: eventzAuthHeaders({ 'Content-Type': 'application/json' }),
                             body: JSON.stringify({ resolvedBy: user?.name || 'Admin' })
                           });
                           if (res.ok) await loadSecurityAlerts();
