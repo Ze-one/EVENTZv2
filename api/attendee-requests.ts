@@ -558,7 +558,7 @@ async function reviewRegistration(id: string, decision: RegistrationStatus, revi
         const { data: updatedRegistration } = await supabase
           .from('registrationRequests')
           .update({
-            approvalEmailStatus: 'sent',
+            approvalEmailStatus: 'queued',
             approvalEmailSentAt: new Date().toISOString(),
             approvalEmailError: null
           })
