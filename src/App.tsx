@@ -763,12 +763,12 @@ export default function App() {
           {/* User Profile & Logout Desktop */}
           <div className="eventz-sidebar-account hidden lg:flex items-center gap-3 text-xs">
             <div className="space-y-0.5 text-right">
-              <p className="font-extrabold text-white">{currentUser.name}</p>
-              <p className="text-[10px] text-yellow-500 font-mono uppercase tracking-wider">{currentUser.role.replace('_', ' ')}</p>
+              <p className="font-extrabold text-slate-800">{currentUser.name}</p>
+              <p className="text-[9px] text-slate-400 font-mono uppercase tracking-wider">{currentUser.role.replace('_', ' ')}</p>
             </div>
             <button
               onClick={handleLogout}
-              className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl transition-all shadow"
+              className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-900 rounded-xl transition-all"
               title="Terminate Secure Session"
             >
               <LogOut size={14} />
