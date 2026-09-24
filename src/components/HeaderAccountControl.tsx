@@ -183,7 +183,7 @@ export default function HeaderAccountControl() {
     window.location.href = '/';
   };
 
-  if (!currentUser) return null;
+  if (!currentUser || window.location.pathname.startsWith('/register') || window.location.pathname.startsWith('/rsvp/')) return null;
 
   const initials = currentUser.name.slice(0, 2).toUpperCase();
 
