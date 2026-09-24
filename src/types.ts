@@ -94,6 +94,18 @@ export interface Participant {
   registrationId?: string;
   isGuest?: boolean;
   guestOfParticipantId?: string;
+  passVersion?: number;
+  passRevokedAt?: string | null;
+  passRevokedBy?: string | null;
+  passRevocationReason?: string | null;
+  entryMode?: 'single' | 'multiple' | 'reentry';
+  allowedDays?: string[];
+  presenceState?: 'outside' | 'inside';
+  accessCount?: number;
+  lastAccessAt?: string | null;
+  lastAccessGate?: string | null;
+  lastExitAt?: string | null;
+  lastExitGate?: string | null;
 }
 
 export interface ScanLog {
