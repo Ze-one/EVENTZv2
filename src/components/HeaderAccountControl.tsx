@@ -188,10 +188,10 @@ export default function HeaderAccountControl() {
   const initials = currentUser.name.slice(0, 2).toUpperCase();
 
   return (
-    <div className="eventz-floating-profile fixed z-[150] font-sans text-left">
+    <div className="eventz-header-profile relative z-[150] font-sans text-left shrink-0">
       <button
         onClick={() => setOpen((prev) => !prev)}
-        className="relative h-[42px] bg-white/92 hover:bg-white border border-slate-200/70 rounded-full pl-1.5 pr-3 flex items-center gap-2 shadow-lg shadow-slate-900/5 backdrop-blur-xl transition-all"
+        className="eventz-profile-trigger relative h-[42px] bg-white/92 hover:bg-white border border-slate-200/70 rounded-full pl-1.5 pr-3 flex items-center gap-2 shadow-lg shadow-slate-900/5 backdrop-blur-xl transition-all"
         title="Open profile and account control"
       >
         <div className="w-8 h-8 rounded-full bg-[#0b1f4d] text-yellow-400 flex items-center justify-center overflow-hidden font-black text-[10px] border border-slate-200">
@@ -205,7 +205,7 @@ export default function HeaderAccountControl() {
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-3 w-[min(92vw,480px)] max-h-[86vh] overflow-y-auto apple-card rounded-[2rem] p-4 animate-slide-up shadow-2xl">
+        <div className="eventz-header-popover absolute right-0 mt-3 w-[min(92vw,480px)] max-h-[86vh] overflow-y-auto apple-card rounded-[2rem] p-4 animate-slide-up shadow-2xl">
           <div className="flex items-start justify-between gap-3 border-b border-slate-200/70 pb-4">
             <div className="flex items-center gap-3">
               <div className="w-14 h-14 rounded-2xl bg-slate-950 text-yellow-400 flex items-center justify-center overflow-hidden font-black">
