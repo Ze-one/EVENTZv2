@@ -7,6 +7,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Participant, EventDetails, PassStatus, EmailLog } from '../types.js';
 import { Search, ShieldAlert, UserCheck, Trash2, RotateCcw, X, Mail, Send, RefreshCcw, MessageCircle, History, Ban, ShieldCheck, CalendarDays, Plus, LockKeyhole } from 'lucide-react';
 import EventPassCard from './EventPassCard.tsx';
+import { eventzAuthHeaders } from '../utils/auth.js';
 
 interface ParticipantsListViewProps {
   participants: Participant[];
@@ -99,7 +100,7 @@ export default function ParticipantsListView({
     const loadHistory = async () => {
       setLifecycleLoading(true);
       try {
-        const res = await fetch(`/api/participants/${encodeURIComponent(selectedParticipant.id)}/pass-history`, { cache: 'no-store' });
+        const res = await fetch(`/api/participants/${encodeURIComponent(selectedParticipant.id)}/pass-history`, { cache: 'no-store', headers: eventzAuthHeaders() });
         const data = await res.json();
         if (!cancelled && res.ok) setPassHistory(Array.isArray(data.history) ? data.history : []);
       } catch {
@@ -236,7 +237,7 @@ export default function ParticipantsListView({
       const currentUser = rawUser ? JSON.parse(rawUser) : null;
       const res = await fetch(`/api/participants/${encodeURIComponent(participant.id)}/regenerate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: eventzAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ regeneratedBy: currentUser?.name || 'Admin', resetCheckIn: true })
       });
       const data = await res.json();
@@ -263,7 +264,7 @@ export default function ParticipantsListView({
       const currentUser = rawUser ? JSON.parse(rawUser) : null;
       const res = await fetch(`/api/participants/${encodeURIComponent(participant.id)}/revoke`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: eventzAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           performedBy: currentUser?.name || 'Admin',
           reason: reason.trim() || 'Pass revoked by administrator'
@@ -274,7 +275,7 @@ export default function ParticipantsListView({
       await onUpdateParticipant(participant.id, {});
       setSelectedParticipant(data.participant || participant);
       setActionMessage(`Pass revoked for ${participant.fullName}. Existing QR generation is now invalid.`);
-      const historyRes = await fetch(`/api/participants/${encodeURIComponent(participant.id)}/pass-history`, { cache: 'no-store' });
+      const historyRes = await fetch(`/api/participants/${encodeURIComponent(participant.id)}/pass-history`, { cache: 'no-store', headers: eventzAuthHeaders() });
       if (historyRes.ok) setPassHistory((await historyRes.json()).history || []);
     } catch (error: any) {
       setActionMessage(error?.message || 'Pass revocation failed.');
@@ -292,7 +293,7 @@ export default function ParticipantsListView({
       const currentUser = rawUser ? JSON.parse(rawUser) : null;
       const res = await fetch(`/api/participants/${encodeURIComponent(selectedParticipant.id)}/access-rules`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: eventzAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           entryMode: entryModeDraft,
           allowedDays: allowedDaysDraft,
@@ -304,7 +305,7 @@ export default function ParticipantsListView({
       await onUpdateParticipant(selectedParticipant.id, {});
       setSelectedParticipant(data.participant || selectedParticipant);
       setActionMessage(`Access rules updated for ${selectedParticipant.fullName}.`);
-      const historyRes = await fetch(`/api/participants/${encodeURIComponent(selectedParticipant.id)}/pass-history`, { cache: 'no-store' });
+      const historyRes = await fetch(`/api/participants/${encodeURIComponent(selectedParticipant.id)}/pass-history`, { cache: 'no-store', headers: eventzAuthHeaders() });
       if (historyRes.ok) setPassHistory((await historyRes.json()).history || []);
     } catch (error: any) {
       setActionMessage(error?.message || 'Unable to save pass access rules.');
