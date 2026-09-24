@@ -39,6 +39,11 @@ type Registration = {
   approvalEmailStatus?: string | null;
   approvalEmailSentAt?: string | null;
   approvalEmailError?: string | null;
+  source?: string;
+  invitationId?: string | null;
+  requestedSlots?: number;
+  guests?: Array<{ fullName: string; email?: string; phone?: string }>;
+  customAnswers?: Record<string, any>;
 };
 
 interface Props {
@@ -57,6 +62,7 @@ export default function RegistrationManagementView({ adminName, onChanged }: Pro
   const [shareCopied, setShareCopied] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [customFieldDefinitions, setCustomFieldDefinitions] = useState<Array<{ id: string; label: string }>>([]);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission
   );
@@ -86,6 +92,16 @@ export default function RegistrationManagementView({ adminName, onChanged }: Pro
     load();
     const timer = window.setInterval(() => load(true), 10000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/attendee-requests?mode=registration-config', { cache: 'no-store' })
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) return;
+        setCustomFieldDefinitions(Array.isArray(data.customRegistrationFields) ? data.customRegistrationFields : []);
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -142,7 +158,8 @@ export default function RegistrationManagementView({ adminName, onChanged }: Pro
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Review action failed.');
       if (data.capacityReached) {
-        setMessage('Category capacity was reached. Registration moved to waitlist.');
+        const remaining = data.capacity || {};
+        setMessage(`Capacity is still unavailable for this request. It remains waitlisted. Event seats: ${remaining.eventRemaining ?? 'unlimited'}, category seats: ${remaining.categoryRemaining ?? 'unlimited'}, requested: ${remaining.requestedSlots || item.requestedSlots || 1}.`);
       } else if (decision === 'approved') {
         const emailStatus = data.registration?.approvalEmailStatus;
         setMessage(
@@ -419,8 +436,8 @@ export default function RegistrationManagementView({ adminName, onChanged }: Pro
                   <td className="py-4 px-4 text-right">
                     {item.status !== 'approved' ? (
                       <div className="inline-flex gap-1" onClick={(e) => e.stopPropagation()}>
-                        <button disabled={actingId === item.id} onClick={() => review(item, 'approved')} title="Approve and generate pass" className="p-2 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-40 transition-all hover:scale-105"><UserCheck size={14} /></button>
-                        <button disabled={actingId === item.id} onClick={() => review(item, 'waitlisted')} title="Waitlist" className="p-2 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-40 transition-all hover:scale-105"><Clock3 size={14} /></button>
+                        <button disabled={actingId === item.id} onClick={() => review(item, 'approved')} title={item.status === 'waitlisted' ? 'Promote from waitlist and generate passes' : 'Approve and generate pass'} className="p-2 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-40 transition-all hover:scale-105"><UserCheck size={14} /></button>
+                        {item.status !== 'waitlisted' && <button disabled={actingId === item.id} onClick={() => review(item, 'waitlisted')} title="Waitlist" className="p-2 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-40 transition-all hover:scale-105"><Clock3 size={14} /></button>}
                         <button disabled={actingId === item.id} onClick={() => review(item, 'rejected')} title="Reject" className="p-2 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 disabled:opacity-40 transition-all hover:scale-105"><UserX size={14} /></button>
                       </div>
                     ) : (
@@ -547,6 +564,55 @@ export default function RegistrationManagementView({ adminName, onChanged }: Pro
                 <p className="text-sm text-slate-700 leading-relaxed mt-2 whitespace-pre-wrap">{selected.notes || 'No additional information was submitted.'}</p>
               </div>
 
+              <div className="grid sm:grid-cols-3 gap-3">
+                <div className="rounded-2xl border border-slate-100 bg-white p-4">
+                  <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Registration source</p>
+                  <p className="text-sm font-black text-slate-900 mt-2">{selected.source === 'invitation' ? 'Private invitation' : 'Public portal'}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-100 bg-white p-4">
+                  <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Requested passes</p>
+                  <p className="text-sm font-black text-slate-900 mt-2">{selected.requestedSlots || 1}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-100 bg-white p-4">
+                  <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Guests</p>
+                  <p className="text-sm font-black text-slate-900 mt-2">{selected.guests?.length || 0}</p>
+                </div>
+              </div>
+
+              {Boolean(selected.guests?.length) && (
+                <div className="rounded-2xl border border-slate-100 bg-[#f7f8fb] p-5">
+                  <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Guest requests</p>
+                  <div className="mt-3 space-y-2">
+                    {selected.guests!.map((guest, index) => (
+                      <div key={index} className="rounded-xl bg-white border border-slate-100 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-black text-slate-800">{guest.fullName}</p>
+                          <p className="text-[10px] text-slate-400 mt-1">{guest.email || 'No email'} · {guest.phone || 'No phone'}</p>
+                        </div>
+                        <span className="text-[9px] font-black uppercase text-slate-400">Guest {index + 1}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {selected.customAnswers && Object.keys(selected.customAnswers).length > 0 && (
+                <div className="rounded-2xl border border-slate-100 bg-white p-5">
+                  <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Custom registration answers</p>
+                  <div className="mt-3 grid sm:grid-cols-2 gap-3">
+                    {Object.entries(selected.customAnswers).map(([fieldId, value]) => {
+                      const definition = customFieldDefinitions.find((field) => field.id === fieldId);
+                      return (
+                        <div key={fieldId} className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+                          <p className="text-[9px] font-black uppercase tracking-wider text-slate-400">{definition?.label || fieldId}</p>
+                          <p className="text-xs font-bold text-slate-800 mt-1 whitespace-pre-wrap">{typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value || '—')}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {(selected.reviewedAt || selected.reviewedBy || selected.rejectionReason) && (
                 <div className="rounded-2xl border border-slate-100 p-5">
                   <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Review history</p>
@@ -560,8 +626,8 @@ export default function RegistrationManagementView({ adminName, onChanged }: Pro
 
               {selected.status !== 'approved' && (
                 <div className="flex flex-col sm:flex-row gap-2 pt-1">
-                  <button disabled={actingId === selected.id} onClick={() => review(selected, 'approved')} className="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center justify-center gap-2 transition-all hover:-translate-y-0.5"><UserCheck size={14} /> Approve & Create Pass</button>
-                  <button disabled={actingId === selected.id} onClick={() => review(selected, 'waitlisted')} className="flex-1 py-3 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-black flex items-center justify-center gap-2 transition-all"><Clock3 size={14} /> Waitlist</button>
+                  <button disabled={actingId === selected.id} onClick={() => review(selected, 'approved')} className="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center justify-center gap-2 transition-all hover:-translate-y-0.5"><UserCheck size={14} /> {selected.status === 'waitlisted' ? 'Promote & Create Passes' : 'Approve & Create Passes'}</button>
+                  {selected.status !== 'waitlisted' && <button disabled={actingId === selected.id} onClick={() => review(selected, 'waitlisted')} className="flex-1 py-3 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-black flex items-center justify-center gap-2 transition-all"><Clock3 size={14} /> Waitlist</button>}
                   <button disabled={actingId === selected.id} onClick={() => review(selected, 'rejected')} className="flex-1 py-3 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-black flex items-center justify-center gap-2 transition-all"><UserX size={14} /> Reject</button>
                 </div>
               )}
