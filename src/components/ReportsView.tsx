@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ScanLog, Participant, ScanResult, EmailLog } from '../types.js';
 import { BarChart2, ShieldAlert, CheckCircle2, Trash2, Calendar, Search, ShieldCheck, Mail, Send, AlertTriangle, RefreshCw } from 'lucide-react';
 import ExportReportMenu from './ExportReportMenu.tsx';
@@ -18,13 +18,19 @@ interface ReportsViewProps {
 }
 
 export default function ReportsView({ scanLogs, participants, emailLogs, onClearLogs, onClearEmailLogs, onRefresh }: ReportsViewProps) {
-  const [activeTab, setActiveTab] = useState<'scan' | 'email'>('scan');
+  const [activeTab, setActiveTab] = useState<'scan' | 'email'>(() => (
+    sessionStorage.getItem('eventz_reports_tab') === 'email' ? 'email' : 'scan'
+  ));
   const [searchTerm, setSearchTerm] = useState('');
   const [resultFilter, setResultFilter] = useState<'All' | ScanResult>('All');
   const [showClearLogsConfirm, setShowClearLogsConfirm] = useState(false);
   const [emailSearchTerm, setEmailSearchTerm] = useState('');
   const [emailStatusFilter, setEmailStatusFilter] = useState<'All' | 'Sending' | 'Delivered' | 'Failed'>('All');
   const [showClearEmailLogsConfirm, setShowClearEmailLogsConfirm] = useState(false);
+
+  useEffect(() => {
+    sessionStorage.removeItem('eventz_reports_tab');
+  }, []);
 
   const filteredLogs = scanLogs.filter(log => {
     const matchesSearch = log.passId.toLowerCase().includes(searchTerm.toLowerCase()) ||
