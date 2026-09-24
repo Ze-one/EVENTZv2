@@ -7,6 +7,8 @@ import React, { useMemo, useState } from 'react';
 import { EventDetails, Participant, PassStatus } from '../types.js';
 import EventPassCard from './EventPassCard.tsx';
 import RegistrationControlsPanel from './RegistrationControlsPanel.tsx';
+import PassTemplateSelector from './PassTemplateSelector.tsx';
+import { DEFAULT_PASS_DESIGN, PassDesign, getPassDesign } from '../pass-design.js';
 import { Save, Palette, Calendar, MapPin, CheckCircle2, TicketCheck, ShieldCheck, Users, Star, QrCode, Sparkles, Paintbrush, LayoutTemplate, Type, Eye, Upload, Image as ImageIcon, Trash2 } from 'lucide-react';
 
 interface EventSettingsViewProps {
@@ -17,12 +19,6 @@ interface EventSettingsViewProps {
 const mockPreviewParticipant: Participant = {
   id: 'part-mock', eventId: 'event-1', fullName: 'Alex Morgan', phone: '+237 6 75 00 00 00', email: 'alex.morgan@example.com', organization: 'ETS N-TECH Corp', category: 'VIP ACCESS', passId: 'EVTZ-2026-0416-X9Z8', status: PassStatus.NOT_USED, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
 };
-
-const DEFAULT_DESIGN = {
-  type: 'eventz-pass-design', designType: 'ticket', backgroundColor: '#d8dcdf', topBarColor: '#d8dcdf', brandPanelColor: '#ffffff', textColor: '#020617', mutedTextColor: '#475569', logoBlockColor: '#0b1f4d', qrFrameColor: '#ffffff', primaryColor: '#0b1f4d', accentColor: '#f2a900', logoText: 'eventZ', slogan: 'manage your event access by ETS.NTECH', icon: 'ticket', customLogoDataUrl: '', logoFit: 'contain', cornerRadius: 32, qrSize: 208, showTopNotch: true, showBrandPanel: true, fontStyle: 'modern'
-};
-
-type PassDesign = typeof DEFAULT_DESIGN;
 
 const BRAND_PRESETS = [
   { name: 'EVENTZ Classic', primary: '#0b1f4d', accent: '#f2a900', bg: '#d8dcdf', panel: '#ffffff' },
@@ -42,17 +38,9 @@ const ICONS = [
   { id: 'sparkles', label: 'Premium', Icon: Sparkles }
 ];
 
-function getDesign(event: EventDetails): PassDesign {
-  try {
-    const parsed = JSON.parse(event.logoPath || '{}');
-    if (parsed?.type === 'eventz-pass-design') return { ...DEFAULT_DESIGN, ...parsed, customLogoDataUrl: parsed.customLogoDataUrl || '' };
-  } catch {}
-  return { ...DEFAULT_DESIGN, primaryColor: event.primaryColor || DEFAULT_DESIGN.primaryColor, accentColor: event.accentColor || DEFAULT_DESIGN.accentColor };
-}
-
 export default function EventSettingsView({ event, onSave }: EventSettingsViewProps) {
   const [formData, setFormData] = useState<EventDetails>({ ...event });
-  const [design, setDesign] = useState<PassDesign>(getDesign(event));
+  const [design, setDesign] = useState<PassDesign>(getPassDesign(event));
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [logoUploadError, setLogoUploadError] = useState('');
@@ -67,7 +55,13 @@ export default function EventSettingsView({ event, onSave }: EventSettingsViewPr
 
   const resetToEventzStyle = () => {
     setLogoUploadError('');
-    setDesign(prev => ({ ...prev, icon: 'ticket', customLogoDataUrl: '', logoText: 'eventZ', logoFit: 'contain', logoBlockColor: '#0b1f4d' }));
+    setDesign(prev => ({
+      ...DEFAULT_PASS_DESIGN,
+      primaryColor: prev.primaryColor,
+      accentColor: prev.accentColor,
+      customLogoDataUrl: '',
+      customTemplateDataUrl: ''
+    }));
   };
 
   const handleLogoUpload = (file?: File) => {
@@ -119,7 +113,9 @@ export default function EventSettingsView({ event, onSave }: EventSettingsViewPr
         />
 
         <div className="apple-card p-6 rounded-3xl space-y-5">
-          <div className="flex items-center gap-2 border-b border-slate-100 pb-3"><div className="w-8 h-8 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-600"><Paintbrush size={15} /></div><div><h3 className="font-extrabold text-slate-800 text-sm">Mini Pass Design Studio</h3><p className="text-[10px] text-slate-400">Customize background, logo, icon, QR size, and ticket shape</p></div></div>
+          <div className="flex items-center gap-2 border-b border-slate-100 pb-3"><div className="w-8 h-8 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-600"><Paintbrush size={15} /></div><div><h3 className="font-extrabold text-slate-800 text-sm">Pass Design Studio</h3><p className="text-[10px] text-slate-400">Choose or upload an editable template, then control branding, live fields and the secure QR layer.</p></div></div>
+
+          <PassTemplateSelector design={design} onChange={setDesign} />
 
           <div className="bg-white border border-slate-100 p-4 rounded-2xl shadow-sm space-y-4">
             <div className="flex items-center gap-1.5 text-slate-700 font-bold text-xs"><ImageIcon size={13} /><span>Top-Left Logo Block</span></div>
@@ -155,7 +151,7 @@ export default function EventSettingsView({ event, onSave }: EventSettingsViewPr
           <div className="bg-white border border-slate-100 p-4 rounded-2xl shadow-sm space-y-4">
             <div className="flex items-center gap-1.5 text-slate-700 font-bold text-xs"><LayoutTemplate size={13} /><span>Icon Library</span></div>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-2">{ICONS.map(({ id, label, Icon }) => <button key={id} type="button" onClick={() => updateDesign('icon', id)} className={`p-3 rounded-2xl border text-xs font-bold flex flex-col items-center gap-1 ${design.icon === id ? 'bg-slate-950 text-white border-slate-950' : 'bg-slate-50 text-slate-600 border-slate-100 hover:bg-slate-100'}`}><Icon size={18} /><span>{label}</span></button>)}</div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs"><div><label className="text-[9px] font-bold text-slate-400 tracking-wider uppercase block mb-1">QR Size</label><input type="range" min="150" max="260" value={design.qrSize} onChange={(e) => updateDesign('qrSize', Number(e.target.value))} className="w-full" /><span className="font-mono text-slate-500">{design.qrSize}px</span></div><div><label className="text-[9px] font-bold text-slate-400 tracking-wider uppercase block mb-1">Corner Radius</label><input type="range" min="0" max="48" value={design.cornerRadius} onChange={(e) => updateDesign('cornerRadius', Number(e.target.value))} className="w-full" /><span className="font-mono text-slate-500">{design.cornerRadius}px</span></div><div><label className="text-[9px] font-bold text-slate-400 tracking-wider uppercase block mb-1">Font Style</label><select value={design.fontStyle} onChange={(e) => updateDesign('fontStyle', e.target.value)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl"><option value="modern">Modern</option><option value="classic">Classic</option></select></div></div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs"><div><label className="text-[9px] font-bold text-slate-400 tracking-wider uppercase block mb-1">Corner Radius</label><input type="range" min="0" max="48" value={design.cornerRadius} onChange={(e) => updateDesign('cornerRadius', Number(e.target.value))} className="w-full" /><span className="font-mono text-slate-500">{design.cornerRadius}px</span></div><div><label className="text-[9px] font-bold text-slate-400 tracking-wider uppercase block mb-1">Font Style</label><select value={design.fontStyle} onChange={(e) => updateDesign('fontStyle', e.target.value)} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl"><option value="modern">Modern</option><option value="classic">Classic</option></select></div></div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3"><label className="flex items-center gap-3 cursor-pointer text-xs font-semibold text-slate-700"><input type="checkbox" checked={design.showTopNotch} onChange={(e) => updateDesign('showTopNotch', e.target.checked)} /> Show ticket notch</label><label className="flex items-center gap-3 cursor-pointer text-xs font-semibold text-slate-700"><input type="checkbox" checked={design.showBrandPanel} onChange={(e) => updateDesign('showBrandPanel', e.target.checked)} /> Show central brand panel</label></div>
           </div>
 
