@@ -5,10 +5,32 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
-import { Camera, RefreshCw, AlertCircle, Search, HelpCircle, Play, SwitchCamera, StopCircle } from 'lucide-react';
+import {
+  AlertCircle,
+  Camera,
+  CloudDownload,
+  CloudUpload,
+  HelpCircle,
+  LogIn,
+  LogOut,
+  Play,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  StopCircle,
+  SwitchCamera,
+  Wifi,
+  WifiOff
+} from 'lucide-react';
+import {
+  GateDirection,
+  getOfflineGateStatus,
+  refreshOfflineManifest,
+  syncOfflineQueue
+} from '../utils/offlineGate.js';
 
 interface ScannerComponentProps {
-  onScanResult: (passId: string) => void;
+  onScanResult: (scanValue: string, direction?: GateDirection) => void;
   participants?: unknown[];
 }
 
@@ -18,37 +40,88 @@ interface CameraDeviceInfo {
 }
 
 export default function ScannerComponent({ onScanResult }: ScannerComponentProps) {
-  const [manualId, setManualId] = useState<string>('');
+  const [manualId, setManualId] = useState('');
   const [activeTab, setActiveTab] = useState<'camera' | 'manual'>('camera');
+  const [direction, setDirection] = useState<GateDirection>('entry');
   const [cameras, setCameras] = useState<CameraDeviceInfo[]>([]);
-  const [selectedCameraId, setSelectedCameraId] = useState<string>('');
-  const [scanError, setScanError] = useState<string>('');
-  const [isCameraLoading, setIsCameraLoading] = useState<boolean>(false);
-  const [cameraStarted, setCameraStarted] = useState<boolean>(false);
-  const [useFrontCamera, setUseFrontCamera] = useState<boolean>(false);
+  const [selectedCameraId, setSelectedCameraId] = useState('');
+  const [scanError, setScanError] = useState('');
+  const [isCameraLoading, setIsCameraLoading] = useState(false);
+  const [cameraStarted, setCameraStarted] = useState(false);
+  const [useFrontCamera, setUseFrontCamera] = useState(false);
   const [scannerInstanceKey, setScannerInstanceKey] = useState(0);
+  const [online, setOnline] = useState(navigator.onLine);
+  const [offlineStatus, setOfflineStatus] = useState(getOfflineGateStatus());
+  const [offlineBusy, setOfflineBusy] = useState(false);
+  const [offlineMessage, setOfflineMessage] = useState('');
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const isStartingRef = useRef(false);
   const lastScanRef = useRef<{ value: string; time: number }>({ value: '', time: 0 });
 
-  const normalizePassId = (decodedText: string) => {
-    let passId = decodedText.trim();
-    if (passId.includes('/verify/')) {
-      const parts = passId.split('/verify/');
-      passId = parts[parts.length - 1];
+  const refreshOfflineStatus = () => setOfflineStatus(getOfflineGateStatus());
+
+  const prepareOfflineGate = async (syncPending = true) => {
+    if (!navigator.onLine) {
+      refreshOfflineStatus();
+      setOfflineMessage('No connection. Using the last signed manifest stored on this device.');
+      return;
     }
-    return decodeURIComponent(passId).trim().toUpperCase();
+
+    setOfflineBusy(true);
+    setOfflineMessage('');
+    try {
+      if (syncPending) {
+        const queueStatus = getOfflineGateStatus();
+        if (queueStatus.pendingSync > 0) await syncOfflineQueue();
+      }
+      const manifest = await refreshOfflineManifest();
+      setOfflineMessage(`${manifest.count} passes securely synced for offline scanning.`);
+    } catch (error: any) {
+      setOfflineMessage(error?.message || 'Offline gate preparation failed.');
+    } finally {
+      refreshOfflineStatus();
+      setOfflineBusy(false);
+    }
   };
 
-  const sendScanResultImmediately = (passId: string) => {
-    const normalized = normalizePassId(passId);
+  useEffect(() => {
+    const onOnline = async () => {
+      setOnline(true);
+      try {
+        await syncOfflineQueue();
+        await refreshOfflineManifest();
+      } catch {}
+      refreshOfflineStatus();
+    };
+    const onOffline = () => {
+      setOnline(false);
+      refreshOfflineStatus();
+    };
+
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    prepareOfflineGate(false);
+
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+      stopScanner();
+    };
+  }, []);
+
+  const normalizeScannedValue = (decodedText: string) => {
+    const raw = String(decodedText || '').trim();
+    if (!raw) return '';
+    if (/^https?:\/\//i.test(raw) || raw.includes('/verify/')) return raw;
+    return decodeURIComponent(raw).trim().toUpperCase();
+  };
+
+  const sendScanResultImmediately = (scanValue: string) => {
+    const normalized = normalizeScannedValue(scanValue);
     if (!normalized) return;
-    onScanResult(normalized);
+    onScanResult(normalized, direction);
     setManualId('');
-    setTimeout(() => {
-      window.dispatchEvent(new PopStateEvent('popstate'));
-    }, 80);
   };
 
   const getCameraDisplayName = (camera: CameraDeviceInfo, index: number) => {
@@ -87,7 +160,14 @@ export default function ScannerComponent({ onScanResult }: ScannerComponentProps
 
   const requestBrowserCameraPermission = async (front = false) => {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('This browser does not support camera access. Use Chrome, Edge, or Safari on the live HTTPS link.');
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: front ? 'user' : { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: front ? 'user' : { ideal: 'environment' },
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      },
+      audio: false
+    });
     stream.getTracks().forEach((track) => track.stop());
   };
 
@@ -116,14 +196,14 @@ export default function ScannerComponent({ onScanResult }: ScannerComponentProps
           return { width: qrboxSize, height: qrboxSize };
         },
         aspectRatio: 1.0,
-        disableFlip: false,
+        disableFlip: false
       },
       (decodedText) => {
-        const passId = normalizePassId(decodedText);
+        const scanValue = normalizeScannedValue(decodedText);
         const now = Date.now();
-        if (lastScanRef.current.value === passId && now - lastScanRef.current.time < 2500) return;
-        lastScanRef.current = { value: passId, time: now };
-        sendScanResultImmediately(passId);
+        if (lastScanRef.current.value === scanValue && now - lastScanRef.current.time < 2500) return;
+        lastScanRef.current = { value: scanValue, time: now };
+        sendScanResultImmediately(scanValue);
       },
       () => {}
     );
@@ -134,6 +214,7 @@ export default function ScannerComponent({ onScanResult }: ScannerComponentProps
     isStartingRef.current = true;
     setIsCameraLoading(true);
     setScanError('');
+
     try {
       await stopScanner();
       await new Promise((resolve) => setTimeout(resolve, 120));
@@ -142,9 +223,19 @@ export default function ScannerComponent({ onScanResult }: ScannerComponentProps
       const selectedId = cameraId || selectedCameraId || choosePreferredCamera(detectedCameras, preferFront);
       const scanner = new Html5Qrcode('reader-container', { verbose: false });
       scannerRef.current = scanner;
+
       const attempts = selectedId
-        ? [{ deviceId: { exact: selectedId } }, selectedId, { facingMode: preferFront ? 'user' : 'environment' }, { facingMode: preferFront ? 'user' : { ideal: 'environment' } }]
-        : [{ facingMode: preferFront ? 'user' : 'environment' }, { facingMode: preferFront ? 'user' : { ideal: 'environment' } }];
+        ? [
+            { deviceId: { exact: selectedId } },
+            selectedId,
+            { facingMode: preferFront ? 'user' : 'environment' },
+            { facingMode: preferFront ? 'user' : { ideal: 'environment' } }
+          ]
+        : [
+            { facingMode: preferFront ? 'user' : 'environment' },
+            { facingMode: preferFront ? 'user' : { ideal: 'environment' } }
+          ];
+
       let lastError: any = null;
       for (const config of attempts) {
         try {
@@ -157,6 +248,7 @@ export default function ScannerComponent({ onScanResult }: ScannerComponentProps
         }
       }
       if (lastError) throw lastError;
+
       setCameraStarted(true);
       if (selectedId) setSelectedCameraId(selectedId);
     } catch (err: any) {
@@ -164,7 +256,7 @@ export default function ScannerComponent({ onScanResult }: ScannerComponentProps
       setCameraStarted(false);
       const name = err?.name ? `${err.name}: ` : '';
       const message = err?.message || 'Unable to start camera.';
-      setScanError(`${name}${message} Make sure the app is opened on the live HTTPS Vercel URL, camera permission is allowed, and no other app is already using the camera.`);
+      setScanError(`${name}${message} Make sure camera permission is allowed and no other app is already using the camera.`);
     } finally {
       isStartingRef.current = false;
       setIsCameraLoading(false);
@@ -172,6 +264,7 @@ export default function ScannerComponent({ onScanResult }: ScannerComponentProps
   };
 
   const handleStartCamera = () => startScanner(selectedCameraId || undefined, useFrontCamera);
+
   const handleCameraSwitch = async () => {
     const nextUseFront = !useFrontCamera;
     setUseFrontCamera(nextUseFront);
@@ -179,8 +272,6 @@ export default function ScannerComponent({ onScanResult }: ScannerComponentProps
     setSelectedCameraId(cameraId);
     await startScanner(cameraId || undefined, nextUseFront);
   };
-
-  useEffect(() => () => { stopScanner(); }, []);
 
   const handleManualSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -190,10 +281,78 @@ export default function ScannerComponent({ onScanResult }: ScannerComponentProps
 
   return (
     <div className="apple-card rounded-3xl overflow-hidden w-full max-w-lg mx-auto animate-fade-in">
+      <div className="p-3 border-b border-slate-100 bg-slate-50/75 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-[9px] font-black uppercase tracking-wider ${online ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-amber-50 border-amber-100 text-amber-700'}`}>
+            {online ? <Wifi size={11} /> : <WifiOff size={11} />}
+            {online ? 'Online' : 'Offline mode'}
+          </div>
+          <div className="text-[9px] text-slate-400 font-mono text-right">
+            {offlineStatus.manifestCount} cached passes · {offlineStatus.pendingSync} pending sync
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setDirection('entry')}
+            className={`py-2.5 rounded-xl border text-[10px] font-black flex items-center justify-center gap-2 ${direction === 'entry' ? 'bg-emerald-600 border-emerald-600 text-white' : 'bg-white border-slate-200 text-slate-600'}`}
+          >
+            <LogIn size={13} /> ENTRY GATE
+          </button>
+          <button
+            type="button"
+            onClick={() => setDirection('exit')}
+            className={`py-2.5 rounded-xl border text-[10px] font-black flex items-center justify-center gap-2 ${direction === 'exit' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-200 text-slate-600'}`}
+          >
+            <LogOut size={13} /> EXIT GATE
+          </button>
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            type="button"
+            disabled={!online || offlineBusy}
+            onClick={() => prepareOfflineGate(true)}
+            className="flex-1 py-2 rounded-xl bg-white border border-slate-200 text-[9px] font-black text-slate-600 flex items-center justify-center gap-1.5 disabled:opacity-40"
+          >
+            {offlineBusy ? <RefreshCw size={11} className="animate-spin" /> : <CloudDownload size={11} />}
+            Sync Offline Passes
+          </button>
+          <button
+            type="button"
+            disabled={!online || offlineBusy || offlineStatus.pendingSync === 0}
+            onClick={async () => {
+              setOfflineBusy(true);
+              try {
+                const result = await syncOfflineQueue();
+                setOfflineMessage(`${result.accepted || 0} offline scan(s) reconciled; ${result.rejected || 0} conflict(s).`);
+              } catch (error: any) {
+                setOfflineMessage(error?.message || 'Offline scan sync failed.');
+              } finally {
+                refreshOfflineStatus();
+                setOfflineBusy(false);
+              }
+            }}
+            className="flex-1 py-2 rounded-xl bg-white border border-slate-200 text-[9px] font-black text-slate-600 flex items-center justify-center gap-1.5 disabled:opacity-40"
+          >
+            <CloudUpload size={11} /> Sync {offlineStatus.pendingSync || ''} Scans
+          </button>
+        </div>
+
+        {offlineMessage && <p className="text-[9px] text-slate-500 leading-relaxed">{offlineMessage}</p>}
+        {!online && !offlineStatus.ready && (
+          <div className="rounded-xl bg-rose-50 border border-rose-100 p-2.5 text-[9px] font-bold text-rose-700">
+            This device was not prepared for offline operation. Reconnect and tap “Sync Offline Passes” before relying on offline scanning.
+          </div>
+        )}
+      </div>
+
       <div className="flex border-b border-slate-100/80 bg-white/60 p-2 gap-1">
         <button onClick={() => setActiveTab('camera')} className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold ${activeTab === 'camera' ? 'bg-slate-950 text-white shadow' : 'text-slate-600 hover:bg-white'}`}><Camera size={14} />Camera Scanner</button>
         <button onClick={() => { setActiveTab('manual'); stopScanner(); }} className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold ${activeTab === 'manual' ? 'bg-slate-950 text-white shadow' : 'text-slate-600 hover:bg-white'}`}><Search size={14} />Manual ID</button>
       </div>
+
       <div className="p-6">
         {activeTab === 'camera' && (
           <div className="space-y-4 flex flex-col items-center">
@@ -201,13 +360,36 @@ export default function ScannerComponent({ onScanResult }: ScannerComponentProps
             {cameras.length > 1 && <div className="w-full bg-slate-50/80 border border-slate-100 rounded-2xl p-3 space-y-2"><label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">Select Camera</label><select value={selectedCameraId} onChange={(e) => setSelectedCameraId(e.target.value)} className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900">{cameras.map((camera, index) => <option key={camera.id} value={camera.id}>{getCameraDisplayName(camera, index)}</option>)}</select></div>}
             <div className="w-full aspect-square max-w-[340px] bg-slate-950 rounded-[2rem] overflow-hidden border border-slate-800 relative shadow-2xl">
               <div key={scannerInstanceKey} id="reader-container" className="w-full h-full"></div>
-              {!cameraStarted && <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-white bg-slate-950/95 p-6 text-center"><div className="w-16 h-16 rounded-3xl bg-yellow-400 text-slate-950 flex items-center justify-center shadow-lg animate-soft-pulse"><Camera size={28} /></div><div><p className="font-black text-sm">Ready to scan real passes</p><p className="text-slate-400 text-xs mt-1 leading-relaxed">Tap start once and allow camera permission. On phones, the back camera is preferred.</p></div><button onClick={handleStartCamera} disabled={isCameraLoading} className="bg-yellow-400 hover:bg-yellow-300 disabled:opacity-60 text-slate-950 font-black px-5 py-3 rounded-2xl text-xs flex items-center gap-2">{isCameraLoading ? <RefreshCw size={14} className="animate-spin" /> : <Play size={14} />}Start Camera Scanner</button></div>}
+              {!cameraStarted && <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-white bg-slate-950/95 p-6 text-center"><div className="w-16 h-16 rounded-3xl bg-yellow-400 text-slate-950 flex items-center justify-center shadow-lg animate-soft-pulse"><Camera size={28} /></div><div><p className="font-black text-sm">Ready for signed EVENTZ passes</p><p className="text-slate-400 text-xs mt-1 leading-relaxed">The scanner verifies current signed QR credentials and can continue from a pre-synced manifest when venue internet drops.</p></div><button onClick={handleStartCamera} disabled={isCameraLoading} className="bg-yellow-400 hover:bg-yellow-300 disabled:opacity-60 text-slate-950 font-black px-5 py-3 rounded-2xl text-xs flex items-center gap-2">{isCameraLoading ? <RefreshCw size={14} className="animate-spin" /> : <Play size={14} />}Start Camera Scanner</button></div>}
               {cameraStarted && <div className="absolute inset-0 pointer-events-none border-[30px] border-black/30 flex items-center justify-center"><div className="w-full h-full border-2 border-dashed border-yellow-500 rounded-lg relative"><div className="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-yellow-500 -mt-1 -ml-1"></div><div className="absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 border-yellow-500 -mt-1 -mr-1"></div><div className="absolute bottom-0 left-0 w-4 h-4 border-b-4 border-l-4 border-yellow-500 -mb-1 -ml-1"></div><div className="absolute bottom-0 right-0 w-4 h-4 border-b-4 border-r-4 border-yellow-500 -mb-1 -mr-1"></div></div></div>}
             </div>
-            <div className="w-full grid grid-cols-3 gap-2"><button onClick={handleCameraSwitch} disabled={isCameraLoading} className="bg-slate-100 hover:bg-slate-200 disabled:opacity-60 text-slate-700 font-bold py-3 rounded-2xl text-xs flex items-center justify-center gap-2"><SwitchCamera size={14} />Flip</button><button onClick={() => refreshCameraList()} disabled={isCameraLoading} className="bg-slate-100 hover:bg-slate-200 disabled:opacity-60 text-slate-700 font-bold py-3 rounded-2xl text-xs flex items-center justify-center gap-2"><RefreshCw size={14} />Detect</button><button onClick={stopScanner} disabled={!cameraStarted} className="bg-rose-50 hover:bg-rose-100 disabled:opacity-40 text-rose-700 font-bold py-3 rounded-2xl text-xs flex items-center justify-center gap-2"><StopCircle size={14} />Stop</button></div>
+            <div className="w-full grid grid-cols-3 gap-2">
+              <button onClick={handleCameraSwitch} disabled={isCameraLoading} className="bg-slate-100 hover:bg-slate-200 disabled:opacity-60 text-slate-700 font-bold py-3 rounded-2xl text-xs flex items-center justify-center gap-2"><SwitchCamera size={14} />Flip</button>
+              <button onClick={() => refreshCameraList()} disabled={isCameraLoading} className="bg-slate-100 hover:bg-slate-200 disabled:opacity-60 text-slate-700 font-bold py-3 rounded-2xl text-xs flex items-center justify-center gap-2"><RefreshCw size={14} />Detect</button>
+              <button onClick={stopScanner} disabled={!cameraStarted} className="bg-rose-50 hover:bg-rose-100 disabled:opacity-40 text-rose-700 font-bold py-3 rounded-2xl text-xs flex items-center justify-center gap-2"><StopCircle size={14} />Stop</button>
+            </div>
           </div>
         )}
-        {activeTab === 'manual' && <form onSubmit={handleManualSearch} className="space-y-4 animate-fade-in"><div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">ENTER PASS ID MANUALLY</label><div className="flex gap-2"><input type="text" value={manualId} onChange={(e) => setManualId(e.target.value.toUpperCase())} placeholder="e.g. ETSN-2026-0001-X7K9" className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-slate-900 uppercase" /><button type="submit" disabled={!manualId.trim()} className="bg-slate-950 hover:bg-slate-800 disabled:opacity-50 text-white font-bold px-6 py-3 rounded-xl text-xs">Verify</button></div></div><div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 text-[11px] text-slate-500 leading-relaxed"><p className="font-semibold text-slate-700 mb-1 flex items-center gap-1.5"><HelpCircle size={13} className="text-slate-400" /> Reliable manual fallback</p><ul className="list-disc pl-4 space-y-1"><li>Manual ID uses the same backend verification and duplicate-entry protection as QR scanning.</li><li>Type the pass ID exactly as shown. It is automatically converted to uppercase.</li><li>The verification result should appear immediately without refreshing the browser tab.</li></ul></div></form>}
+
+        {activeTab === 'manual' && (
+          <form onSubmit={handleManualSearch} className="space-y-4 animate-fade-in">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">ENTER PASS ID MANUALLY</label>
+              <div className="flex gap-2">
+                <input type="text" value={manualId} onChange={(e) => setManualId(e.target.value.toUpperCase())} placeholder="e.g. ETSN-2026-0001-X7K9" className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-slate-900 uppercase" />
+                <button type="submit" disabled={!manualId.trim() || !online} className="bg-slate-950 hover:bg-slate-800 disabled:opacity-50 text-white font-bold px-6 py-3 rounded-xl text-xs">Verify</button>
+              </div>
+            </div>
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 text-[11px] text-slate-500 leading-relaxed">
+              <p className="font-semibold text-slate-700 mb-1 flex items-center gap-1.5"><ShieldCheck size={13} className="text-slate-400" /> Manual fallback</p>
+              <ul className="list-disc pl-4 space-y-1">
+                <li>Manual lookup is available while online but cannot prove the signed QR itself was presented.</li>
+                <li>Offline entry requires the signed QR so the scanner can match it against the pre-synced manifest.</li>
+                <li>Use manual lookup only when a printed QR is damaged or unreadable.</li>
+              </ul>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   );
