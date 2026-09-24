@@ -173,8 +173,8 @@ export default function App() {
         const registrations = await res.json();
         if (cancelled || !Array.isArray(registrations)) return;
 
-        const pending = registrations.filter((item: any) => item.status === 'pending');
-        setPendingRegistrations(pending.length);
+        const actionable = registrations.filter((item: any) => item.status === 'pending' || item.status === 'waitlisted');
+        setPendingRegistrations(actionable.length);
 
         const currentIds = new Set<string>(registrations.map((item: any) => String(item.id)));
         if (!registrationFeedReadyRef.current) {
