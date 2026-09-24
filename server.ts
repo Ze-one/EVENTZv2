@@ -6,6 +6,7 @@
 import dotenv from 'dotenv';
 import express from 'express';
 import path from 'path';
+import crypto from 'crypto';
 import { db } from './src/server/db.js';
 import { PassStatus, ScanResult } from './src/types.js';
 
@@ -15,6 +16,10 @@ const appRoot = process.cwd();
 const app = express();
 
 export { app };
+
+function makeRsvpToken() {
+  return crypto.randomBytes(24).toString('hex');
+}
 
 function getClientInfo(req: express.Request) {
   const ipAddress = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || '127.0.0.1';
@@ -63,14 +68,36 @@ app.get('/api/participants', async (_req, res) => {
 app.post('/api/participants', async (req, res) => {
   const { fullName, phone, email, organization, category } = req.body || {};
   if (!fullName) return res.status(400).json({ error: 'Full name is required' });
-  const participant = await db.createParticipant({ eventId: 'event-1', fullName, phone: phone || '', email: email || '', organization: organization || '', category: category || '', status: PassStatus.NOT_USED });
+  const participant = await db.createParticipant({
+    eventId: 'event-1',
+    fullName,
+    phone: phone || '',
+    email: email || '',
+    organization: organization || '',
+    category: category || '',
+    status: PassStatus.NOT_USED,
+    rsvpToken: makeRsvpToken(),
+    rsvpStatus: 'pending',
+    passCancelledByRsvp: false
+  });
   return res.json(participant);
 });
 
 app.post('/api/participants/batch', async (req, res) => {
   const { participants } = req.body || {};
   if (!Array.isArray(participants) || participants.length === 0) return res.status(400).json({ error: 'Participants array is required' });
-  const batchData = participants.map((p: any) => ({ eventId: 'event-1', fullName: p.fullName || 'Anonymous', phone: p.phone || '', email: p.email || '', organization: p.organization || '', category: p.category || '', status: PassStatus.NOT_USED }));
+  const batchData = participants.map((p: any) => ({
+    eventId: 'event-1',
+    fullName: p.fullName || 'Anonymous',
+    phone: p.phone || '',
+    email: p.email || '',
+    organization: p.organization || '',
+    category: p.category || '',
+    status: PassStatus.NOT_USED,
+    rsvpToken: makeRsvpToken(),
+    rsvpStatus: 'pending',
+    passCancelledByRsvp: false
+  }));
   const created = await db.createParticipantsBatch(batchData);
   return res.json({ success: true, count: created.length, data: created });
 });
