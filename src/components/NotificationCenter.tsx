@@ -55,11 +55,22 @@ function noticeFromScanLog(log: ScanLog): Notice {
   const pass = log.passId || 'Unknown pass';
   const scanner = log.scannedBy || 'Gate';
 
+  if (log.riskLevel === 'high' || log.riskReason) {
+    return {
+      id: `scan-${log.id}`,
+      title: log.scanResult === ScanResult.USED ? 'High-risk duplicate scan' : 'Pass security alert',
+      body: `${log.riskReason || `Suspicious activity detected for pass ${pass}.`} Gate: ${scanner}.${log.offline ? ' This scan originated offline and was reconciled later.' : ''}`,
+      tone: 'danger',
+      createdAt: log.createdAt,
+      read: false
+    };
+  }
+
   if (log.scanResult === ScanResult.VALID) {
     return {
       id: `scan-${log.id}`,
-      title: 'Successful check-in',
-      body: `${name} checked in successfully with pass ${pass}. Scanned by ${scanner}.`,
+      title: log.direction === 'exit' ? 'Exit recorded' : 'Successful access scan',
+      body: `${name} ${log.direction === 'exit' ? 'exited' : 'entered'} with pass ${pass}. ${log.qrVerified ? 'Signed QR verified.' : 'Manual/unsigned lookup.'} Scanned by ${scanner}.`,
       tone: 'success',
       createdAt: log.createdAt,
       read: false
@@ -70,7 +81,7 @@ function noticeFromScanLog(log: ScanLog): Notice {
     return {
       id: `scan-${log.id}`,
       title: 'Duplicate entry attempt',
-      body: `Pass ${pass} was scanned again. This may be a reused or shared pass. Scanned by ${scanner}.`,
+      body: `Pass ${pass} was scanned again. This may be a reused or shared screenshot/pass. Scanned by ${scanner}.`,
       tone: 'warning',
       createdAt: log.createdAt,
       read: false
@@ -80,8 +91,8 @@ function noticeFromScanLog(log: ScanLog): Notice {
   if (log.scanResult === ScanResult.CANCELLED) {
     return {
       id: `scan-${log.id}`,
-      title: 'Cancelled pass detected',
-      body: `Cancelled pass ${pass} was presented at the gate. Scanned by ${scanner}.`,
+      title: 'Revoked pass detected',
+      body: `Revoked/cancelled pass ${pass} was presented at the gate. Scanned by ${scanner}.`,
       tone: 'danger',
       createdAt: log.createdAt,
       read: false
@@ -90,8 +101,8 @@ function noticeFromScanLog(log: ScanLog): Notice {
 
   return {
     id: `scan-${log.id}`,
-    title: 'Forgery / invalid pass alert',
-    body: `Invalid pass ${pass} was scanned. This may be a forged or unknown pass. Scanned by ${scanner}.`,
+    title: log.qrVerified === false ? 'Invalid / forged credential alert' : 'Invalid pass alert',
+    body: `Invalid pass ${pass} was scanned. This may be an unknown, altered, or outdated credential. Scanned by ${scanner}.`,
     tone: 'danger',
     createdAt: log.createdAt,
     read: false
@@ -236,7 +247,7 @@ export default function NotificationCenter() {
           <div className="flex items-start justify-between border-b border-slate-100 pb-3">
             <div>
               <h3 className="text-sm font-black text-slate-900 flex items-center gap-2"><BellRing size={15} className="text-yellow-500" /> EVENTZ Push Alerts</h3>
-              <p className="text-[10px] text-slate-500 leading-relaxed mt-1">Live alerts for check-ins, duplicate use, cancelled passes, and possible forgeries.</p>
+              <p className="text-[10px] text-slate-500 leading-relaxed mt-1">Live alerts for signed-QR failures, duplicate/cross-gate use, revocation, offline reconciliation, and possible pass sharing.</p>
             </div>
             <button onClick={() => setOpen(false)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-500"><X size={15} /></button>
           </div>
