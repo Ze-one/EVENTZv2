@@ -17,6 +17,7 @@ import RegistrationManagementView from './components/RegistrationManagementView.
 import RsvpResponseView from './components/RsvpResponseView.tsx';
 import AppHeader from './components/AppHeader.tsx';
 import { GateDirection, parseEventzScanValue, queueOfflineClaim, verifyOfflineScan } from './utils/offlineGate.js';
+import { EVENTZ_SESSION_TOKEN_KEY, eventzAuthHeaders } from './utils/auth.js';
 import { 
   Users, Calendar, CheckSquare, BarChart2, LogOut, Camera, ShieldAlert, 
   CheckCircle2, Menu, X, ArrowLeft, Key, UserCheck, ShieldCheck, Eye, EyeOff, UserX, Trash2, RefreshCw, Sparkles
@@ -104,12 +105,17 @@ export default function App() {
   useEffect(() => {
     // Sync session login on load
     const storedUser = localStorage.getItem('etsn_user');
-    if (storedUser) {
+    const storedSession = localStorage.getItem(EVENTZ_SESSION_TOKEN_KEY);
+    if (storedUser && storedSession) {
       try {
         setCurrentUser(JSON.parse(storedUser));
       } catch (e) {
         localStorage.removeItem('etsn_user');
+        localStorage.removeItem(EVENTZ_SESSION_TOKEN_KEY);
       }
+    } else if (storedUser && !storedSession) {
+      // Sessions created before signed server sessions were introduced must sign in again.
+      localStorage.removeItem('etsn_user');
     }
 
     fetchAllData();
@@ -232,6 +238,7 @@ export default function App() {
         const data = await res.json();
         setCurrentUser(data.user);
         localStorage.setItem('etsn_user', JSON.stringify(data.user));
+        if (data.sessionToken) localStorage.setItem(EVENTZ_SESSION_TOKEN_KEY, data.sessionToken);
         
         // Redirect gate officer to scanner page instantly, admin to dashboard
         if (data.user.role === UserRole.GATE_OFFICER) {
@@ -253,6 +260,7 @@ export default function App() {
   const handleLogout = () => {
     setCurrentUser(null);
     localStorage.removeItem('etsn_user');
+    localStorage.removeItem(EVENTZ_SESSION_TOKEN_KEY);
     setCurrentPage('dashboard');
     // Clear URL if we were on a verification route
     if (window.location.pathname.includes('/verify/')) {
@@ -507,7 +515,7 @@ export default function App() {
 
       const res = await fetch(`/api/verify/${encodeURIComponent(passId)}/claim`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: eventzAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           checkedInBy,
           token: selectedScanToken || undefined,
