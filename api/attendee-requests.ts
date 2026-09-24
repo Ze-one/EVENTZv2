@@ -97,34 +97,55 @@ async function getRsvpState(token: string) {
   const supabase = getSupabase();
 
   if (supabase) {
-    const { data: registration, error } = await supabase
+    const { data: registration, error: registrationError } = await supabase
       .from('registrationRequests')
       .select('*')
       .eq('rsvpToken', token)
       .maybeSingle();
-    if (error) throw new Error(error.message);
-    if (!registration || registration.status !== 'approved') throw new Error('This RSVP link is invalid or no longer active.');
+    if (registrationError) throw new Error(registrationError.message);
+    if (registration && registration.status !== 'approved') throw new Error('This RSVP link is invalid or no longer active.');
 
-    const { data: participant } = registration.participantId
-      ? await supabase.from('participants').select('*').eq('id', registration.participantId).maybeSingle()
-      : { data: null };
-    const { data: event } = await supabase.from('events').select('*').eq('id', registration.eventId || 'event-1').maybeSingle();
+    let { data: participant, error: participantError } = await supabase
+      .from('participants')
+      .select('*')
+      .eq('rsvpToken', token)
+      .maybeSingle();
+    if (participantError) throw new Error(participantError.message);
+
+    if (!participant && registration?.participantId) {
+      const lookup = await supabase.from('participants').select('*').eq('id', registration.participantId).maybeSingle();
+      if (lookup.error) throw new Error(lookup.error.message);
+      participant = lookup.data;
+    }
+
+    if (!participant) throw new Error('This RSVP link is invalid or no longer active.');
+
+    const eventId = registration?.eventId || participant.eventId || 'event-1';
+    const { data: event } = await supabase.from('events').select('*').eq('id', eventId).maybeSingle();
 
     return {
-      registration: {
+      registration: registration ? {
         id: registration.id,
         fullName: registration.fullName,
         categoryName: registration.categoryName,
-        rsvpStatus: registration.rsvpStatus,
-        rsvpUpdatedAt: registration.rsvpUpdatedAt,
+        rsvpStatus: participant.rsvpStatus || registration.rsvpStatus || 'pending',
+        rsvpUpdatedAt: participant.rsvpUpdatedAt || registration.rsvpUpdatedAt,
         submittedAt: registration.submittedAt,
         status: registration.status
+      } : {
+        id: participant.id,
+        fullName: participant.fullName,
+        categoryName: participant.category || 'Attendee',
+        rsvpStatus: participant.rsvpStatus || 'pending',
+        rsvpUpdatedAt: participant.rsvpUpdatedAt,
+        submittedAt: participant.createdAt,
+        status: 'approved'
       },
-      participant: participant ? {
+      participant: {
         id: participant.id,
         passId: participant.passId,
         status: participant.status
-      } : null,
+      },
       event: event ? {
         eventName: event.eventName,
         eventDate: event.eventDate,
@@ -136,21 +157,37 @@ async function getRsvpState(token: string) {
   }
 
   const local = readLocalDb();
-  const registration = (local.registrationRequests || []).find((item: any) => item.rsvpToken === token);
-  if (!registration || registration.status !== 'approved') throw new Error('This RSVP link is invalid or no longer active.');
-  const participant = (local.participants || []).find((item: any) => item.id === registration.participantId) || null;
-  const event = (local.events || []).find((item: any) => item.id === (registration.eventId || 'event-1')) || local.events?.[0] || null;
+  const registration = (local.registrationRequests || []).find((item: any) => item.rsvpToken === token) || null;
+  if (registration && registration.status !== 'approved') throw new Error('This RSVP link is invalid or no longer active.');
+
+  let participant = (local.participants || []).find((item: any) => item.rsvpToken === token) || null;
+  if (!participant && registration?.participantId) {
+    participant = (local.participants || []).find((item: any) => item.id === registration.participantId) || null;
+  }
+  if (!participant) throw new Error('This RSVP link is invalid or no longer active.');
+
+  const eventId = registration?.eventId || participant.eventId || 'event-1';
+  const event = (local.events || []).find((item: any) => item.id === eventId) || local.events?.[0] || null;
+
   return {
-    registration: {
+    registration: registration ? {
       id: registration.id,
       fullName: registration.fullName,
       categoryName: registration.categoryName,
-      rsvpStatus: registration.rsvpStatus,
-      rsvpUpdatedAt: registration.rsvpUpdatedAt,
+      rsvpStatus: participant.rsvpStatus || registration.rsvpStatus || 'pending',
+      rsvpUpdatedAt: participant.rsvpUpdatedAt || registration.rsvpUpdatedAt,
       submittedAt: registration.submittedAt,
       status: registration.status
+    } : {
+      id: participant.id,
+      fullName: participant.fullName,
+      categoryName: participant.category || 'Attendee',
+      rsvpStatus: participant.rsvpStatus || 'pending',
+      rsvpUpdatedAt: participant.rsvpUpdatedAt,
+      submittedAt: participant.createdAt,
+      status: 'approved'
     },
-    participant: participant ? { id: participant.id, passId: participant.passId, status: participant.status } : null,
+    participant: { id: participant.id, passId: participant.passId, status: participant.status },
     event
   };
 }
@@ -161,82 +198,108 @@ async function updateRsvp(token: string, response: 'yes' | 'declined') {
   const now = new Date().toISOString();
 
   if (supabase) {
-    const { data: registration, error } = await supabase
+    const { data: registration, error: registrationError } = await supabase
       .from('registrationRequests')
       .select('*')
       .eq('rsvpToken', token)
       .maybeSingle();
-    if (error) throw new Error(error.message);
-    if (!registration || registration.status !== 'approved') throw new Error('This RSVP link is invalid or no longer active.');
-    if (!registration.participantId) throw new Error('No participant pass is linked to this registration.');
+    if (registrationError) throw new Error(registrationError.message);
+    if (registration && registration.status !== 'approved') throw new Error('This RSVP link is invalid or no longer active.');
 
-    const { data: participant, error: participantError } = await supabase
+    let { data: participant, error: participantError } = await supabase
       .from('participants')
       .select('*')
-      .eq('id', registration.participantId)
+      .eq('rsvpToken', token)
       .maybeSingle();
     if (participantError) throw new Error(participantError.message);
+
+    if (!participant && registration?.participantId) {
+      const lookup = await supabase.from('participants').select('*').eq('id', registration.participantId).maybeSingle();
+      if (lookup.error) throw new Error(lookup.error.message);
+      participant = lookup.data;
+    }
+
     if (!participant) throw new Error('Participant record not found.');
     if (participant.status === 'Used') throw new Error('Attendance can no longer be changed after check-in.');
 
-    let passCancelledByRsvp = Boolean(registration.passCancelledByRsvp);
+    let passCancelledByRsvp = Boolean(participant.passCancelledByRsvp || registration?.passCancelledByRsvp);
+    let nextPassStatus = participant.status;
 
-    if (response === 'declined') {
-      if (participant.status === 'Not Used') {
-        const { error: cancelError } = await supabase
-          .from('participants')
-          .update({ status: 'Cancelled', updatedAt: now })
-          .eq('id', participant.id);
-        if (cancelError) throw new Error(cancelError.message);
-        passCancelledByRsvp = true;
-      }
+    if (response === 'declined' && participant.status === 'Not Used') {
+      nextPassStatus = 'Cancelled';
+      passCancelledByRsvp = true;
     } else if (response === 'yes' && passCancelledByRsvp && participant.status === 'Cancelled') {
-      const { error: restoreError } = await supabase
-        .from('participants')
-        .update({ status: 'Not Used', updatedAt: now })
-        .eq('id', participant.id);
-      if (restoreError) throw new Error(restoreError.message);
+      nextPassStatus = 'Not Used';
       passCancelledByRsvp = false;
     }
 
-    const updates = {
-      rsvpStatus: response,
-      rsvpUpdatedAt: now,
-      rsvpDeclinedAt: response === 'declined' ? now : null,
-      passCancelledByRsvp
-    };
-    const { error: updateError } = await supabase
-      .from('registrationRequests')
-      .update(updates)
-      .eq('id', registration.id);
-    if (updateError) throw new Error(updateError.message);
+    const { error: participantUpdateError } = await supabase
+      .from('participants')
+      .update({
+        status: nextPassStatus,
+        rsvpStatus: response,
+        rsvpUpdatedAt: now,
+        rsvpDeclinedAt: response === 'declined' ? now : null,
+        passCancelledByRsvp,
+        updatedAt: now
+      })
+      .eq('id', participant.id);
+    if (participantUpdateError) throw new Error(participantUpdateError.message);
+
+    if (registration) {
+      const { error: registrationUpdateError } = await supabase
+        .from('registrationRequests')
+        .update({
+          rsvpStatus: response,
+          rsvpUpdatedAt: now,
+          rsvpDeclinedAt: response === 'declined' ? now : null,
+          passCancelledByRsvp
+        })
+        .eq('id', registration.id);
+      if (registrationUpdateError) throw new Error(registrationUpdateError.message);
+    }
 
     return getRsvpState(token);
   }
 
   const local = readLocalDb();
-  const index = (local.registrationRequests || []).findIndex((item: any) => item.rsvpToken === token);
-  if (index === -1 || local.registrationRequests[index].status !== 'approved') throw new Error('This RSVP link is invalid or no longer active.');
-  const registration = local.registrationRequests[index];
-  const participantIndex = (local.participants || []).findIndex((item: any) => item.id === registration.participantId);
+  const registrationIndex = (local.registrationRequests || []).findIndex((item: any) => item.rsvpToken === token);
+  const registration = registrationIndex >= 0 ? local.registrationRequests[registrationIndex] : null;
+  if (registration && registration.status !== 'approved') throw new Error('This RSVP link is invalid or no longer active.');
+
+  let participantIndex = (local.participants || []).findIndex((item: any) => item.rsvpToken === token);
+  if (participantIndex === -1 && registration?.participantId) {
+    participantIndex = (local.participants || []).findIndex((item: any) => item.id === registration.participantId);
+  }
   if (participantIndex === -1) throw new Error('Participant record not found.');
+
   const participant = local.participants[participantIndex];
   if (participant.status === 'Used') throw new Error('Attendance can no longer be changed after check-in.');
 
+  let passCancelledByRsvp = Boolean(participant.passCancelledByRsvp || registration?.passCancelledByRsvp);
   if (response === 'declined' && participant.status === 'Not Used') {
     participant.status = 'Cancelled';
-    participant.updatedAt = now;
-    registration.passCancelledByRsvp = true;
-  } else if (response === 'yes' && registration.passCancelledByRsvp && participant.status === 'Cancelled') {
+    passCancelledByRsvp = true;
+  } else if (response === 'yes' && passCancelledByRsvp && participant.status === 'Cancelled') {
     participant.status = 'Not Used';
-    participant.updatedAt = now;
-    registration.passCancelledByRsvp = false;
+    passCancelledByRsvp = false;
   }
-  registration.rsvpStatus = response;
-  registration.rsvpUpdatedAt = now;
-  registration.rsvpDeclinedAt = response === 'declined' ? now : null;
-  local.registrationRequests[index] = registration;
+
+  participant.rsvpStatus = response;
+  participant.rsvpUpdatedAt = now;
+  participant.rsvpDeclinedAt = response === 'declined' ? now : null;
+  participant.passCancelledByRsvp = passCancelledByRsvp;
+  participant.updatedAt = now;
   local.participants[participantIndex] = participant;
+
+  if (registration) {
+    registration.rsvpStatus = response;
+    registration.rsvpUpdatedAt = now;
+    registration.rsvpDeclinedAt = response === 'declined' ? now : null;
+    registration.passCancelledByRsvp = passCancelledByRsvp;
+    local.registrationRequests[registrationIndex] = registration;
+  }
+
   writeLocalDb(local);
   return getRsvpState(token);
 }
@@ -407,6 +470,7 @@ async function reviewRegistration(id: string, decision: RegistrationStatus, revi
       const { count } = await supabase.from('participants').select('*', { count: 'exact', head: true });
       const { data: eventData } = await supabase.from('events').select('*').eq('id', 'event-1').maybeSingle();
       event = eventData || await db.getEvent();
+      rsvpToken = rsvpToken || makeRsvpToken();
       participant = {
         id: `part-${Math.random().toString(36).slice(2, 9)}`,
         eventId: 'event-1',
@@ -417,12 +481,14 @@ async function reviewRegistration(id: string, decision: RegistrationStatus, revi
         category: request.categoryName || 'Attendees',
         passId: makePassId((count || 0) + 1, event?.eventDate),
         status: 'Not Used',
+        rsvpToken,
+        rsvpStatus: request.rsvpStatus || 'yes',
+        passCancelledByRsvp: false,
         createdAt: now,
         updatedAt: now
       };
       const { error: participantError } = await supabase.from('participants').insert(participant);
       if (participantError) throw new Error(participantError.message);
-      rsvpToken = rsvpToken || makeRsvpToken();
     }
 
     const updates: any = {
@@ -519,12 +585,15 @@ async function reviewRegistration(id: string, decision: RegistrationStatus, revi
       category: request.categoryName || 'Attendees',
       passId: makePassId(local.participants.length + 1, local.events?.[0]?.eventDate),
       status: 'Not Used',
+      rsvpToken: request.rsvpToken || makeRsvpToken(),
+      rsvpStatus: request.rsvpStatus || 'yes',
+      passCancelledByRsvp: false,
       createdAt: now,
       updatedAt: now
     };
     local.participants.push(participant);
     request.participantId = participant.id;
-    request.rsvpToken = request.rsvpToken || makeRsvpToken();
+    request.rsvpToken = participant.rsvpToken;
     request.approvalEmailStatus = 'not_sent';
   }
   request.status = decision;
@@ -551,6 +620,9 @@ async function applyLegacyRequest(reqItem: LegacyRequest) {
       category: reqItem.payload.category || 'Attendees',
       passId: makePassId((count || 0) + 1),
       status: 'Not Used',
+      rsvpToken: makeRsvpToken(),
+      rsvpStatus: 'pending',
+      passCancelledByRsvp: false,
       createdAt: now,
       updatedAt: now
     };
