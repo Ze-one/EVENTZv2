@@ -37,7 +37,9 @@ export function createSignedPassToken(participant: any) {
     passId: String(participant.passId).trim().toUpperCase(),
     eventId: String(participant.eventId || 'event-1'),
     passVersion: Number(participant.passVersion || 1),
-    issuedAt: Math.floor(Date.now() / 1000)
+    issuedAt: Number.isFinite(new Date(participant.createdAt || 0).getTime())
+      ? Math.floor(new Date(participant.createdAt || 0).getTime() / 1000)
+      : 0
   };
 
   const body = base64url(JSON.stringify(payload));
