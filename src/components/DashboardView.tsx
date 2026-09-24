@@ -74,32 +74,44 @@ export default function DashboardView({ participants, scanLogs, event, onNavigat
 
   return (
     <div className="space-y-4 w-full text-left">
-      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 px-1">
-        <div>
-          <div className="eventz-kicker flex items-center gap-2">
-            <Sparkles size={11} className="text-yellow-500" />
-            EVENT COMMAND CENTER
+      {event.dashboardMediaUrl && event.dashboardMediaEnabled !== false ? (
+        <DashboardHero
+          event={event}
+          todayLabel={todayLabel}
+          total={total}
+          checkedIn={checkedIn}
+          notCheckedIn={notCheckedIn}
+          onRefresh={onRefresh}
+          onOpenScanner={() => onNavigate('scanner')}
+        />
+      ) : (
+        <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 px-1">
+          <div>
+            <div className="eventz-kicker flex items-center gap-2">
+              <Sparkles size={11} className="text-yellow-500" />
+              EVENT COMMAND CENTER
+            </div>
+            <h2 className="text-2xl md:text-[30px] leading-tight font-black tracking-[-0.045em] text-slate-950 mt-2">
+              {event.eventName}
+            </h2>
+            <p className="text-xs text-slate-500 mt-1.5">
+              {event.venue} · {todayLabel} · {event.eventTime}
+            </p>
           </div>
-          <h2 className="text-2xl md:text-[30px] leading-tight font-black tracking-[-0.045em] text-slate-950 mt-2">
-            {event.eventName}
-          </h2>
-          <p className="text-xs text-slate-500 mt-1.5">
-            {event.venue} · {todayLabel} · {event.eventTime}
-          </p>
+          <div className="flex items-center gap-2">
+            <button onClick={onRefresh} className="eventz-icon-button" title="Refresh live event data">
+              <RefreshCw size={14} />
+            </button>
+            <button
+              onClick={() => onNavigate('scanner')}
+              className="rounded-full bg-[#0b1f4d] hover:bg-[#122b63] text-white px-4 py-2.5 text-[10px] font-black flex items-center gap-2 shadow-lg shadow-slate-900/10"
+            >
+              <ScanLine size={14} />
+              Open Scanner
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={onRefresh} className="eventz-icon-button" title="Refresh live event data">
-            <RefreshCw size={14} />
-          </button>
-          <button
-            onClick={() => onNavigate('scanner')}
-            className="rounded-full bg-[#0b1f4d] hover:bg-[#122b63] text-white px-4 py-2.5 text-[10px] font-black flex items-center gap-2 shadow-lg shadow-slate-900/10"
-          >
-            <ScanLine size={14} />
-            Open Scanner
-          </button>
-        </div>
-      </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
         <MetricCard
@@ -308,6 +320,128 @@ export default function DashboardView({ participants, scanLogs, event, onNavigat
         </section>
       </div>
     </div>
+  );
+}
+
+function DashboardHero({
+  event,
+  todayLabel,
+  total,
+  checkedIn,
+  notCheckedIn,
+  onRefresh,
+  onOpenScanner
+}: {
+  event: EventDetails;
+  todayLabel: string;
+  total: number;
+  checkedIn: number;
+  notCheckedIn: number;
+  onRefresh: () => void;
+  onOpenScanner: () => void;
+}) {
+  const mediaType = event.dashboardMediaType || 'image';
+  const overlay = Math.max(0, Math.min(70, Number(event.dashboardMediaOverlay ?? 28))) / 100;
+  const position = event.dashboardMediaPosition || 'center';
+  const fit = event.dashboardMediaFit || 'cover';
+
+  return (
+    <section className="eventz-dashboard-hero relative min-h-[250px] md:min-h-[285px] overflow-hidden rounded-[30px] border border-white/10 bg-[#07142f] shadow-[0_24px_70px_rgba(4,12,30,.24)]">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_12%_18%,rgba(242,169,0,.16),transparent_31%),linear-gradient(135deg,#07142f_0%,#0b1f4d_52%,#102b68_100%)]" />
+
+      <div
+        className="eventz-dashboard-hero-media absolute inset-y-0 right-0 w-[78%] sm:w-[70%] lg:w-[62%] pointer-events-none"
+        style={{
+          WebkitMaskImage: 'linear-gradient(to right, transparent 0%, rgba(0,0,0,.18) 10%, #000 30%, #000 100%)',
+          maskImage: 'linear-gradient(to right, transparent 0%, rgba(0,0,0,.18) 10%, #000 30%, #000 100%)'
+        }}
+      >
+        {mediaType === 'video' ? (
+          <video
+            src={event.dashboardMediaUrl || ''}
+            autoPlay={event.dashboardMediaAutoplay !== false}
+            loop={event.dashboardMediaLoop !== false}
+            muted
+            playsInline
+            preload="metadata"
+            className="w-full h-full"
+            style={{ objectFit: fit, objectPosition: position }}
+          />
+        ) : (
+          <img
+            src={event.dashboardMediaUrl || ''}
+            alt=""
+            aria-hidden="true"
+            className="w-full h-full"
+            style={{ objectFit: fit, objectPosition: position }}
+          />
+        )}
+      </div>
+
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background: `linear-gradient(90deg, rgba(7,20,47,.99) 0%, rgba(7,20,47,.96) 27%, rgba(7,20,47,${Math.max(.54, overlay + .28)}) 48%, rgba(7,20,47,${Math.max(.08, overlay * .42)}) 74%, rgba(7,20,47,.04) 100%)`
+        }}
+      />
+      <div className="absolute inset-x-0 bottom-0 h-[43%] bg-gradient-to-t from-[#07142f]/75 via-[#07142f]/20 to-transparent pointer-events-none" />
+      <div className="absolute -right-20 -top-28 w-72 h-72 rounded-full border border-white/10 pointer-events-none" />
+      <div className="absolute -right-6 -top-12 w-52 h-52 rounded-full border border-white/10 pointer-events-none" />
+
+      <div className="relative z-10 min-h-[250px] md:min-h-[285px] p-5 md:p-7 flex flex-col justify-between">
+        <div className="flex items-start justify-between gap-4">
+          <div className="max-w-[92%] sm:max-w-[62%] lg:max-w-[52%]">
+            <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.18em] text-[#f2a900]">
+              <Sparkles size={11} />
+              EVENT COMMAND CENTER
+            </div>
+            <h2 className="text-[28px] sm:text-[34px] lg:text-[40px] leading-[.95] font-black tracking-[-0.05em] text-white mt-3">
+              {event.eventName}
+            </h2>
+            <p className="text-[10px] sm:text-[11px] text-white/58 mt-3 leading-relaxed max-w-xl">
+              {event.venue} · {todayLabel} · {event.eventTime}
+            </p>
+          </div>
+
+          <div className="hidden sm:flex items-center gap-2">
+            <button onClick={onRefresh} className="eventz-hero-control" title="Refresh live event data">
+              <RefreshCw size={14} />
+            </button>
+            <button onClick={onOpenScanner} className="eventz-hero-primary">
+              <ScanLine size={14} />
+              Open Scanner
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+          <div className="flex items-center gap-2 sm:hidden">
+            <button onClick={onRefresh} className="eventz-hero-control" title="Refresh live event data">
+              <RefreshCw size={14} />
+            </button>
+            <button onClick={onOpenScanner} className="eventz-hero-primary">
+              <ScanLine size={14} />
+              Open Scanner
+            </button>
+          </div>
+
+          <div className="eventz-hero-stats max-w-full sm:max-w-[72%] lg:max-w-[58%] grid grid-cols-3 divide-x divide-white/10 rounded-2xl border border-white/10 bg-black/20 backdrop-blur-xl overflow-hidden">
+            <div className="px-3 sm:px-4 py-3">
+              <p className="text-[8px] uppercase tracking-wider font-black text-white/45">Participants</p>
+              <p className="text-lg sm:text-xl font-black text-white mt-1">{total}</p>
+            </div>
+            <div className="px-3 sm:px-4 py-3">
+              <p className="text-[8px] uppercase tracking-wider font-black text-white/45">Checked in</p>
+              <p className="text-lg sm:text-xl font-black text-white mt-1">{checkedIn}</p>
+            </div>
+            <div className="px-3 sm:px-4 py-3">
+              <p className="text-[8px] uppercase tracking-wider font-black text-white/45">Ready</p>
+              <p className="text-lg sm:text-xl font-black text-white mt-1">{notCheckedIn}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
