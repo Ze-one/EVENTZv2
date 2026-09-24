@@ -16,6 +16,7 @@ import PublicRegistrationView from './components/PublicRegistrationView.tsx';
 import RegistrationManagementView from './components/RegistrationManagementView.tsx';
 import RsvpResponseView from './components/RsvpResponseView.tsx';
 import AppHeader from './components/AppHeader.tsx';
+import { GateDirection, parseEventzScanValue, queueOfflineClaim, verifyOfflineScan } from './utils/offlineGate.js';
 import { 
   Users, Calendar, CheckSquare, BarChart2, LogOut, Camera, ShieldAlert, 
   CheckCircle2, Menu, X, ArrowLeft, Key, UserCheck, ShieldCheck, Eye, EyeOff, UserX, Trash2, RefreshCw, Sparkles
@@ -45,14 +46,13 @@ export default function App() {
 
   // Active scanning / QR verify states
   const [selectedPassId, setSelectedPassId] = useState<string>('');
-  const [verifyResult, setVerifyResult] = useState<{
-    status: 'Valid' | 'Used' | 'Invalid' | 'Cancelled';
-    participant?: Participant;
-    error?: string;
-  } | null>(null);
+  const [verifyResult, setVerifyResult] = useState<any>(null);
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [claimLoading, setClaimLoading] = useState(false);
   const [claimSuccess, setClaimSuccess] = useState(false);
+  const [selectedScanRaw, setSelectedScanRaw] = useState('');
+  const [selectedScanToken, setSelectedScanToken] = useState('');
+  const [selectedGateDirection, setSelectedGateDirection] = useState<GateDirection>('entry');
 
   // Custom non-blocking toaster alert notification state
   const [toast, setToast] = useState<{
@@ -132,9 +132,10 @@ export default function App() {
       if (path.startsWith('/verify/')) {
         const passId = path.split('/verify/')[1];
         if (passId) {
-          setSelectedPassId(passId);
+          const rawScanValue = window.location.href;
+          setSelectedPassId(decodeURIComponent(passId).toUpperCase());
           setCurrentPage('verify');
-          handleVerifyQuery(passId);
+          handleVerifyQuery(rawScanValue, 'entry');
         }
       }
     };
@@ -440,57 +441,109 @@ export default function App() {
     }
   };
 
-  // API: Query gate verification
-  const handleVerifyQuery = async (passId: string) => {
+  // API: Query gate verification. Signed QR values preserve the signature token;
+  // manual Pass IDs remain an online fallback.
+  const handleVerifyQuery = async (scanValue: string, direction: GateDirection = 'entry') => {
+    const parsed = parseEventzScanValue(scanValue);
+    const passId = parsed.passId;
+    if (!passId) return;
+
     setVerifyLoading(true);
     setVerifyResult(null);
     setClaimSuccess(false);
-    
-    // Set url route context to support audit copies
-    window.history.pushState({}, '', `/verify/${passId}`);
+    setSelectedPassId(passId);
+    setSelectedScanRaw(scanValue);
+    setSelectedScanToken(parsed.token);
+    setSelectedGateDirection(direction);
+
+    const localDate = new Date().toLocaleDateString('en-CA');
+    window.history.pushState({}, '', `/verify/${encodeURIComponent(passId)}${parsed.token ? `?t=${encodeURIComponent(parsed.token)}` : ''}`);
 
     try {
+      if (!navigator.onLine) throw new Error('offline');
+
       const scannedBy = currentUser ? currentUser.name : 'Web Scanner';
-      const res = await fetch(`/api/verify/${passId}?scannedBy=${encodeURIComponent(scannedBy)}`);
+      const params = new URLSearchParams({
+        scannedBy,
+        direction,
+        localDate
+      });
+      if (parsed.token) params.set('token', parsed.token);
+
+      const res = await fetch(`/api/verify/${encodeURIComponent(passId)}?${params.toString()}`, { cache: 'no-store' });
       const data = await res.json();
-      
-      if (res.ok) {
-        setVerifyResult(data);
-      } else {
-        setVerifyResult({ status: 'Invalid', error: data.error });
-      }
+      setVerifyResult(data?.status ? data : { status: 'Invalid', error: data?.error || 'Pass verification failed.' });
     } catch (err) {
-      setVerifyResult({ status: 'Invalid', error: 'Server connection broken.' });
+      const offlineResult = verifyOfflineScan(scanValue, direction, localDate);
+      setVerifyResult(offlineResult);
     } finally {
       setVerifyLoading(false);
     }
   };
 
-  // API: Mark as checked-in (Claim QR)
+  // API: Mark entry/exit. If venue connectivity drops after offline verification,
+  // queue the signed transaction locally and reconcile when connectivity returns.
   const handleClaimPass = async (passId: string) => {
     setClaimLoading(true);
     setClaimSuccess(false);
 
+    const checkedInBy = currentUser ? currentUser.name : 'Gate Officer';
+    const localDate = new Date().toLocaleDateString('en-CA');
+
     try {
-      const checkedInBy = currentUser ? currentUser.name : 'Gate Officer';
-      const res = await fetch(`/api/verify/${passId}/claim`, {
+      if (!navigator.onLine || verifyResult?.offline) {
+        if (!selectedScanToken) throw new Error('Offline gate claims require a signed QR scan.');
+        queueOfflineClaim({
+          rawValue: selectedScanRaw,
+          direction: selectedGateDirection,
+          checkedInBy,
+          localDate
+        });
+        setClaimSuccess(true);
+        showToast(`${selectedGateDirection === 'exit' ? 'Exit' : 'Entry'} recorded offline and queued for synchronization.`, 'success');
+        setTimeout(() => handleReturnToScanner(), 1500);
+        return;
+      }
+
+      const res = await fetch(`/api/verify/${encodeURIComponent(passId)}/claim`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ checkedInBy })
+        body: JSON.stringify({
+          checkedInBy,
+          token: selectedScanToken || undefined,
+          direction: selectedGateDirection,
+          localDate
+        })
       });
+      const data = await res.json();
 
       if (res.ok) {
         setClaimSuccess(true);
+        if (data.risk?.reason) showToast(`Access recorded with security alert: ${data.risk.reason}`, 'info');
         await fetchAllData();
-        // Automatically close query and return to scanner view after successful verification
-        setTimeout(() => {
-          handleReturnToScanner();
-        }, 1800);
+        setTimeout(() => handleReturnToScanner(), 1800);
       } else {
-        alert('Check-in claiming transaction failed. Pass may already be used.');
+        setVerifyResult(data?.status ? data : verifyResult);
+        showToast(data.error || 'Access transaction was denied.', 'error');
       }
-    } catch (err) {
-      alert('Network failure processing entrance claim.');
+    } catch (err: any) {
+      if (selectedScanToken) {
+        try {
+          queueOfflineClaim({
+            rawValue: selectedScanRaw,
+            direction: selectedGateDirection,
+            checkedInBy,
+            localDate
+          });
+          setClaimSuccess(true);
+          showToast('Connection dropped. Scan stored securely for later synchronization.', 'info');
+          setTimeout(() => handleReturnToScanner(), 1500);
+        } catch (offlineError: any) {
+          showToast(offlineError?.message || err?.message || 'Unable to process access transaction.', 'error');
+        }
+      } else {
+        showToast(err?.message || 'Network failure processing access transaction.', 'error');
+      }
     } finally {
       setClaimLoading(false);
     }
@@ -500,6 +553,9 @@ export default function App() {
     setSelectedPassId('');
     setVerifyResult(null);
     setClaimSuccess(false);
+    setSelectedScanRaw('');
+    setSelectedScanToken('');
+    setSelectedGateDirection('entry');
     setCurrentPage(currentUser?.role === UserRole.GATE_OFFICER ? 'scanner' : 'dashboard');
     window.history.pushState({}, '', '/');
   };
