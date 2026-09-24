@@ -1106,13 +1106,25 @@ select:focus {
   }
 
   .eventz-global-header {
-    grid-template-columns: 126px minmax(0, 1fr);
+    grid-template-columns: 116px minmax(90px, 1fr) auto;
+    min-height: 64px;
+  }
+
+  .eventz-header-brand > div {
+    max-width: 112px;
   }
 
   .eventz-header-actions {
-    grid-column: 1 / -1;
+    grid-column: auto;
     justify-content: flex-end;
-    display: none;
+    display: flex;
+    gap: 5px;
+  }
+
+  .eventz-header-settings,
+  .eventz-header-theme,
+  .eventz-header-mail {
+    display: none !important;
   }
 
   .eventz-header-search-wrap {
