@@ -51,6 +51,7 @@ export default function DashboardVisualStudio({ event, onChange, onPersistMedia 
   const [removing, setRemoving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  // Uploads are sent directly to Supabase through short-lived signed upload tokens.
 
   const uploadMedia = async (file?: File) => {
     setError('');
