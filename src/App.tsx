@@ -1004,6 +1004,21 @@ export default function App() {
                         <p className="font-mono text-xs font-bold text-emerald-600 pt-1">🎫 ID: {verifyResult.participant.passId}</p>
                       </div>
 
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className={`rounded-2xl border p-3 ${verifyResult.qrVerified ? 'bg-emerald-50 border-emerald-100' : 'bg-amber-50 border-amber-100'}`}>
+                          <span className="text-[8px] font-black uppercase tracking-wider text-slate-400">Credential proof</span>
+                          <p className={`text-[10px] font-black mt-1 ${verifyResult.qrVerified ? 'text-emerald-700' : 'text-amber-700'}`}>
+                            {verifyResult.qrVerified ? '✓ Signed QR verified' : 'Manual lookup — QR signature not proven'}
+                          </p>
+                        </div>
+                        <div className={`rounded-2xl border p-3 ${verifyResult.offline ? 'bg-blue-50 border-blue-100' : 'bg-slate-50 border-slate-100'}`}>
+                          <span className="text-[8px] font-black uppercase tracking-wider text-slate-400">Gate mode</span>
+                          <p className="text-[10px] font-black mt-1 text-slate-700">
+                            {verifyResult.offline ? 'Offline signed manifest' : 'Live cloud verification'}
+                          </p>
+                        </div>
+                      </div>
+
                       <div className="grid grid-cols-2 gap-4 text-xs font-semibold text-slate-700 bg-slate-50/50 p-4 rounded-2xl border border-slate-100/60">
                         <div>
                           <span className="text-slate-400 text-[9px] block">CATEGORY</span>
@@ -1020,8 +1035,8 @@ export default function App() {
                         <div className="bg-emerald-50 text-emerald-800 border border-emerald-100 p-5 rounded-2xl text-center flex flex-col items-center justify-center gap-2 animate-bounce">
                           <CheckCircle2 size={32} className="text-emerald-600" />
                           <div className="space-y-0.5">
-                            <p className="font-extrabold text-sm">Checked In Successfully!</p>
-                            <p className="text-[11px] text-emerald-600/80">Guest has been granted event admittance.</p>
+                            <p className="font-extrabold text-sm">{selectedGateDirection === 'exit' ? 'Exit Recorded Successfully!' : 'Access Recorded Successfully!'}</p>
+                            <p className="text-[11px] text-emerald-600/80">{verifyResult?.offline ? 'Stored on this gate and queued for cloud synchronization.' : selectedGateDirection === 'exit' ? 'Participant presence is now recorded outside.' : 'Participant access has been recorded.'}</p>
                           </div>
                         </div>
                       ) : (
@@ -1038,7 +1053,7 @@ export default function App() {
                           ) : (
                             <>
                               <UserCheck size={16} />
-                              MARK AS ENTERED
+                              {selectedGateDirection === 'exit' ? 'RECORD EXIT' : verifyResult?.access?.entryMode === 'reentry' ? 'RECORD ENTRY' : 'MARK AS ENTERED'}
                             </>
                           )}
                         </button>
@@ -1106,6 +1121,43 @@ export default function App() {
                           Dismiss Result
                         </button>
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Signed QR / day / access-rule denial */}
+                {['InvalidSignature', 'NotAllowedToday', 'RuleDenied'].includes(verifyResult.status) && (
+                  <div className="bg-white rounded-3xl overflow-hidden shadow-2xl border border-slate-200">
+                    <div className={`${verifyResult.status === 'InvalidSignature' ? 'bg-rose-700' : 'bg-orange-600'} text-white p-6 flex items-center gap-4`}>
+                      <div className="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center text-white shrink-0">
+                        <ShieldAlert size={24} />
+                      </div>
+                      <div className="space-y-0.5">
+                        <span className="text-[10px] font-bold text-white/70 tracking-wider uppercase">ACCESS CONTROL BLOCK</span>
+                        <h2 className="text-xl font-black">
+                          {verifyResult.status === 'InvalidSignature' ? 'QR SIGNATURE REJECTED' : verifyResult.status === 'NotAllowedToday' ? 'PASS NOT VALID TODAY' : 'ACCESS RULE DENIED'}
+                        </h2>
+                      </div>
+                    </div>
+                    <div className="p-6 space-y-4">
+                      <div className="rounded-2xl bg-rose-50 border border-rose-100 p-4 text-xs text-rose-800 font-semibold leading-relaxed">
+                        {verifyResult.error || 'This credential cannot be accepted under its current access rules.'}
+                      </div>
+                      {verifyResult.participant && (
+                        <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
+                          <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Participant</p>
+                          <p className="text-sm font-black text-slate-900 mt-1">{verifyResult.participant.fullName}</p>
+                          <p className="text-[10px] font-mono text-slate-500 mt-1">{verifyResult.participant.passId}</p>
+                        </div>
+                      )}
+                      {verifyResult.allowedDays?.length > 0 && (
+                        <div className="rounded-xl bg-blue-50 border border-blue-100 p-3 text-[10px] text-blue-800">
+                          Valid day(s): {verifyResult.allowedDays.join(', ')}
+                        </div>
+                      )}
+                      <button onClick={handleReturnToScanner} className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl text-xs">
+                        Dismiss Result
+                      </button>
                     </div>
                   </div>
                 )}
