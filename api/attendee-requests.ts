@@ -597,14 +597,58 @@ async function createRegistration(body: any) {
   const categoryId = String(body.categoryId || '').trim();
   const notes = String(body.notes || '').trim().slice(0, 1000);
   const rsvpStatus = body.rsvpStatus === 'maybe' ? 'maybe' : 'yes';
+  const inviteToken = String(body.inviteToken || '').trim();
 
   if (fullName.length < 2) throw new Error('Please enter your full name.');
   if (!email && !phone) throw new Error('Enter at least an email address or phone number.');
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Enter a valid email address.');
 
+  const event = await getEventRegistrationSettings();
+  if (event?.registrationEnabled === false) throw new Error('Public registration is currently closed for this event.');
+  if (event?.registrationDeadline && new Date(event.registrationDeadline).getTime() < Date.now()) {
+    throw new Error('The registration deadline for this event has passed.');
+  }
+
+  const invitation = inviteToken ? await getInvitationByToken(inviteToken) : null;
+  if (event?.registrationMode === 'invitation_only' && !invitation) {
+    throw new Error('A valid invitation link is required to register for this event.');
+  }
+
   const categories = await getCategories(true);
   const category = categories.find((item: any) => item.id === categoryId);
   if (!category) throw new Error('Select an available registration category.');
+  if (invitation?.categoryId && invitation.categoryId !== category.id) {
+    throw new Error('This invitation is restricted to a different participant category.');
+  }
+
+  const guestLimit = event?.allowGuests ? Math.max(0, Math.min(10, Number(event.maxGuestsPerRegistration ?? 1))) : 0;
+  const rawGuests = Array.isArray(body.guests) ? body.guests.slice(0, guestLimit) : [];
+  const guests = rawGuests
+    .map((guest: any) => ({
+      fullName: String(guest?.fullName || '').trim(),
+      email: normalizeEmail(guest?.email),
+      phone: normalizePhone(guest?.phone)
+    }))
+    .filter((guest: any) => guest.fullName);
+
+  if (!event?.allowGuests && rawGuests.length) throw new Error('Guest registration is not enabled for this event.');
+  if (guests.length > guestLimit) throw new Error(`A maximum of ${guestLimit} guest(s) is allowed.`);
+  for (const guest of guests) {
+    if (guest.fullName.length < 2) throw new Error('Each guest must have a valid full name.');
+    if (guest.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guest.email)) throw new Error(`Enter a valid email address for ${guest.fullName}.`);
+  }
+
+  const customFields = Array.isArray(event?.customRegistrationFields) ? event.customRegistrationFields : [];
+  const customAnswers = normalizeCustomAnswers(customFields, body.customAnswers || {});
+  const requestedSlots = 1 + guests.length;
+  const availability = await getRegistrationAvailability(category, requestedSlots);
+  const waitlistEnabled = event?.waitlistEnabled !== false;
+
+  if (!availability.hasSpace && !waitlistEnabled) {
+    throw new Error('This event or participant category has reached capacity.');
+  }
+
+  const initialStatus: RegistrationStatus = availability.hasSpace ? 'pending' : 'waitlisted';
 
   const supabase = getSupabase();
   if (supabase) {
@@ -629,21 +673,35 @@ async function createRegistration(body: any) {
       categoryId: category.id,
       categoryName: category.name,
       rsvpStatus,
-      status: 'pending',
+      status: initialStatus,
       notes,
-      source: 'public_form',
+      source: invitation ? 'invitation' : 'public_form',
+      guests,
+      customAnswers,
+      invitationId: invitation?.id || null,
+      requestedSlots,
       submittedAt: new Date().toISOString()
     };
     const { data, error } = await supabase.from('registrationRequests').insert(record).select().single();
     if (error) throw new Error(error.message);
+
+    if (invitation) {
+      const { error: inviteError } = await supabase
+        .from('registrationInvitations')
+        .update({ usesCount: Number(invitation.usesCount || 0) + 1 })
+        .eq('id', invitation.id);
+      if (inviteError) throw new Error(inviteError.message);
+    }
+
     return data;
   }
 
-  const db = readLocalDb();
-  if (!db.registrationRequests) db.registrationRequests = [];
-  if (email && db.registrationRequests.some((r: any) => normalizeEmail(r.email) === email && ['pending', 'approved', 'waitlisted'].includes(r.status))) {
+  const local = readLocalDb();
+  if (!local.registrationRequests) local.registrationRequests = [];
+  if (email && local.registrationRequests.some((r: any) => normalizeEmail(r.email) === email && ['pending', 'approved', 'waitlisted'].includes(r.status))) {
     throw new Error('A registration with this email address already exists.');
   }
+
   const record = {
     id: `reg-${Math.random().toString(36).slice(2, 10)}`,
     eventId: 'event-1',
@@ -654,13 +712,24 @@ async function createRegistration(body: any) {
     categoryId: category.id,
     categoryName: category.name,
     rsvpStatus,
-    status: 'pending',
+    status: initialStatus,
     notes,
-    source: 'public_form',
+    source: invitation ? 'invitation' : 'public_form',
+    guests,
+    customAnswers,
+    invitationId: invitation?.id || null,
+    requestedSlots,
     submittedAt: new Date().toISOString()
   };
-  db.registrationRequests.push(record);
-  writeLocalDb(db);
+  local.registrationRequests.push(record);
+
+  if (invitation) {
+    if (!local.registrationInvitations) local.registrationInvitations = [];
+    const inviteIndex = local.registrationInvitations.findIndex((item: any) => item.id === invitation.id);
+    if (inviteIndex >= 0) local.registrationInvitations[inviteIndex].usesCount = Number(invitation.usesCount || 0) + 1;
+  }
+
+  writeLocalDb(local);
   return record;
 }
 
