@@ -5,7 +5,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Participant, EventDetails, PassStatus, EmailLog } from '../types.js';
-import { Search, ShieldAlert, UserCheck, Trash2, RotateCcw, X, Mail, Send, RefreshCcw, MessageCircle } from 'lucide-react';
+import { Search, ShieldAlert, UserCheck, Trash2, RotateCcw, X, Mail, Send, RefreshCcw, MessageCircle, History, Ban, ShieldCheck, CalendarDays, Plus, LockKeyhole } from 'lucide-react';
 import EventPassCard from './EventPassCard.tsx';
 
 interface ParticipantsListViewProps {
@@ -62,6 +62,13 @@ export default function ParticipantsListView({
   const [isPrintingAll, setIsPrintingAll] = useState(false);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState('');
+  const [passHistory, setPassHistory] = useState<any[]>([]);
+  const [lifecycleLoading, setLifecycleLoading] = useState(false);
+  const [entryModeDraft, setEntryModeDraft] = useState<'single' | 'multiple' | 'reentry'>('single');
+  const [allowedDaysDraft, setAllowedDaysDraft] = useState<string[]>([]);
+  const [newAllowedDay, setNewAllowedDay] = useState('');
+  const [savingAccessRules, setSavingAccessRules] = useState(false);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
 
   useEffect(() => {
     const headerSearch = sessionStorage.getItem('eventz_header_search');
@@ -77,6 +84,33 @@ export default function ParticipantsListView({
       setCustomMessage('');
     }
   }, [emailConfirmParticipant]);
+
+  useEffect(() => {
+    if (!selectedParticipant) {
+      setPassHistory([]);
+      return;
+    }
+
+    setEntryModeDraft(selectedParticipant.entryMode || 'single');
+    setAllowedDaysDraft(Array.isArray(selectedParticipant.allowedDays) ? selectedParticipant.allowedDays : []);
+    setNewAllowedDay('');
+
+    let cancelled = false;
+    const loadHistory = async () => {
+      setLifecycleLoading(true);
+      try {
+        const res = await fetch(`/api/participants/${encodeURIComponent(selectedParticipant.id)}/pass-history`, { cache: 'no-store' });
+        const data = await res.json();
+        if (!cancelled && res.ok) setPassHistory(Array.isArray(data.history) ? data.history : []);
+      } catch {
+        if (!cancelled) setPassHistory([]);
+      } finally {
+        if (!cancelled) setLifecycleLoading(false);
+      }
+    };
+    loadHistory();
+    return () => { cancelled = true; };
+  }, [selectedParticipant?.id, selectedParticipant?.passVersion]);
 
   useEffect(() => {
     if (showBulkEmailConfirm) setBulkCustomMessage('');
@@ -216,6 +250,69 @@ export default function ParticipantsListView({
     }
   };
 
+
+  const handleRevokePass = async (participant: Participant) => {
+    const reason = window.prompt('Reason for revoking this pass:', 'Pass revoked by administrator');
+    if (reason === null) return;
+    if (!window.confirm(`Revoke ${participant.fullName}'s current pass immediately? The QR will be denied at all synced gates.`)) return;
+
+    setRevokingId(participant.id);
+    setActionMessage('');
+    try {
+      const rawUser = localStorage.getItem('etsn_user');
+      const currentUser = rawUser ? JSON.parse(rawUser) : null;
+      const res = await fetch(`/api/participants/${encodeURIComponent(participant.id)}/revoke`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          performedBy: currentUser?.name || 'Admin',
+          reason: reason.trim() || 'Pass revoked by administrator'
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Pass revocation failed.');
+      await onUpdateParticipant(participant.id, {});
+      setSelectedParticipant(data.participant || participant);
+      setActionMessage(`Pass revoked for ${participant.fullName}. Existing QR generation is now invalid.`);
+      const historyRes = await fetch(`/api/participants/${encodeURIComponent(participant.id)}/pass-history`, { cache: 'no-store' });
+      if (historyRes.ok) setPassHistory((await historyRes.json()).history || []);
+    } catch (error: any) {
+      setActionMessage(error?.message || 'Pass revocation failed.');
+    } finally {
+      setRevokingId(null);
+    }
+  };
+
+  const saveAccessRules = async () => {
+    if (!selectedParticipant) return;
+    setSavingAccessRules(true);
+    setActionMessage('');
+    try {
+      const rawUser = localStorage.getItem('etsn_user');
+      const currentUser = rawUser ? JSON.parse(rawUser) : null;
+      const res = await fetch(`/api/participants/${encodeURIComponent(selectedParticipant.id)}/access-rules`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          entryMode: entryModeDraft,
+          allowedDays: allowedDaysDraft,
+          performedBy: currentUser?.name || 'Admin'
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Unable to save pass access rules.');
+      await onUpdateParticipant(selectedParticipant.id, {});
+      setSelectedParticipant(data.participant || selectedParticipant);
+      setActionMessage(`Access rules updated for ${selectedParticipant.fullName}.`);
+      const historyRes = await fetch(`/api/participants/${encodeURIComponent(selectedParticipant.id)}/pass-history`, { cache: 'no-store' });
+      if (historyRes.ok) setPassHistory((await historyRes.json()).history || []);
+    } catch (error: any) {
+      setActionMessage(error?.message || 'Unable to save pass access rules.');
+    } finally {
+      setSavingAccessRules(false);
+    }
+  };
+
   const handlePrintAllPasses = () => {
     setIsPrintingAll(true);
     setTimeout(() => {
@@ -298,13 +395,14 @@ export default function ParticipantsListView({
                     <td className="py-3.5 px-4 text-center"><input type="checkbox" checked={selectedParticipantIds.includes(p.id)} onChange={() => handleSelectRowToggle(p.id)} className="rounded border-slate-300 text-slate-950 focus:ring-slate-950 h-4 w-4 cursor-pointer" /></td>
                     <td className="py-3.5 px-4"><div className="flex items-center justify-between gap-2"><div><div className="font-bold text-slate-800 text-sm leading-tight">{p.fullName}</div>{p.organization && <span className="text-[10px] text-slate-500 font-medium block mt-0.5">💼 {p.organization}</span>}</div>{emailState && <span className={`px-2 py-1 rounded-full text-[10px] font-bold border ${emailState.colorClass}`} title={emailState.detail || undefined}>{emailState.label}</span>}</div></td>
                     <td className="py-3.5 px-4 text-slate-600"><div className="space-y-0.5 font-mono text-[10px]">{p.category && <span className="font-bold text-[9px] uppercase tracking-wider text-slate-800 bg-slate-100 px-2 py-0.5 rounded-full inline-block border border-slate-200">{p.category}</span>}{p.email && <p className="truncate max-w-[180px]">✉️ {p.email}</p>}{p.phone && <p>📞 {p.phone}</p>}</div></td>
-                    <td className="py-3.5 px-4 font-mono text-xs font-bold text-slate-700">{p.passId}</td>
+                    <td className="py-3.5 px-4 font-mono text-xs font-bold text-slate-700"><div>{p.passId}</div><div className="mt-1 flex items-center gap-1.5"><span className="text-[8px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">V{p.passVersion || 1}</span><span className="text-[8px] text-slate-400">{p.entryMode || 'single'} entry</span></div></td>
                     <td className="py-3.5 px-4"><span className={`text-[9px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full inline-block border ${p.status === PassStatus.NOT_USED ? 'bg-emerald-50 text-emerald-800 border-emerald-100' : p.status === PassStatus.USED ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-rose-50 text-rose-800 border-rose-100'}`}>{p.status === PassStatus.NOT_USED ? 'Ready' : p.status}</span></td>
                     <td className="py-3.5 px-4 text-slate-500">{p.status === PassStatus.USED ? <div className="space-y-0.5"><p className="font-semibold text-slate-700 font-mono text-[10px]">✓ {checkInTime}</p><p className="text-[9px] font-medium text-slate-400">By {p.checkedInBy || 'Gate'}</p></div> : <span className="text-slate-400 text-[10px] font-mono">—</span>}</td>
                     <td className="py-3.5 px-4 text-right">
                       <div className="flex justify-end gap-1">
                         <button onClick={() => setSelectedParticipant(p)} className="px-2 py-1 text-slate-700 hover:text-slate-900 font-bold rounded hover:bg-slate-50 border border-slate-200 transition-all" title="View / Print Card">View Card</button>
-                        <button onClick={() => handleRegeneratePass(p)} disabled={regeneratingId === p.id} className="p-1.5 text-slate-400 hover:text-yellow-600 hover:bg-yellow-50 disabled:opacity-50 rounded-lg transition-all" title="Regenerate this attendee pass ID and QR"><RefreshCcw size={14} className={regeneratingId === p.id ? 'animate-spin' : ''} /></button>
+                        <button onClick={() => handleRegeneratePass(p)} disabled={regeneratingId === p.id} className="p-1.5 text-slate-400 hover:text-yellow-600 hover:bg-yellow-50 disabled:opacity-50 rounded-lg transition-all" title="Regenerate lost/replaced pass and invalidate the old signed QR"><RefreshCcw size={14} className={regeneratingId === p.id ? 'animate-spin' : ''} /></button>
+                        <button onClick={() => handleRevokePass(p)} disabled={revokingId === p.id || p.status === PassStatus.CANCELLED} className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-30 rounded-lg transition-all" title="Revoke this pass immediately"><Ban size={14} /></button>
                         {onSendEmail && <button onClick={() => setEmailConfirmParticipant(p)} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-all" title="Share Pass via Email"><Mail size={14} /></button>}
                         <button onClick={() => openWhatsAppPassShare(p)} className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all" title={p.phone ? 'Send Pass via WhatsApp' : 'Open WhatsApp with prefilled pass message'}><MessageCircle size={14} /></button>
                         {p.status === PassStatus.USED ? <button onClick={() => onResetCheckIn(p.id)} className="p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all" title="Reset Entrance Check"><RotateCcw size={14} /></button> : <button onClick={() => onUpdateParticipant(p.id, { status: PassStatus.USED, checkedInAt: new Date().toISOString(), checkedInBy: 'Admin Board' })} className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-slate-100 rounded-lg transition-all" title="Mark manual check-in"><UserCheck size={14} /></button>}
@@ -326,6 +424,74 @@ export default function ParticipantsListView({
             <div className="space-y-1"><h3 className="font-extrabold text-slate-800 text-sm">Attendee Pass Preview</h3><p className="text-[10px] text-slate-400">Generate, test, print, or download individual participant credential</p></div>
             <div className="border-t border-slate-50 pt-3 space-y-3">
               <EventPassCard participant={selectedParticipant} event={event} />
+              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 space-y-4">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck size={14} className="text-slate-700" />
+                  <div>
+                    <p className="text-[10px] font-black text-slate-800">Access Rules</p>
+                    <p className="text-[9px] text-slate-400">Enforced by online and pre-synced offline gates.</p>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[9px] uppercase tracking-wider font-black text-slate-400">Entry policy</label>
+                  <select value={entryModeDraft} onChange={(e) => setEntryModeDraft(e.target.value as any)} className="mt-1.5 w-full p-2.5 rounded-xl border border-slate-200 bg-white text-xs font-bold">
+                    <option value="single">Single entry — one successful entry only</option>
+                    <option value="multiple">Multiple entry — repeated entries allowed</option>
+                    <option value="reentry">Re-entry — entry/exit state must alternate</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[9px] uppercase tracking-wider font-black text-slate-400">Day-specific access</label>
+                  <div className="mt-1.5 flex gap-2">
+                    <input type="date" value={newAllowedDay} onChange={(e) => setNewAllowedDay(e.target.value)} className="flex-1 p-2.5 rounded-xl border border-slate-200 bg-white text-xs font-mono" />
+                    <button type="button" disabled={!newAllowedDay || allowedDaysDraft.includes(newAllowedDay)} onClick={() => { if (newAllowedDay && !allowedDaysDraft.includes(newAllowedDay)) setAllowedDaysDraft([...allowedDaysDraft, newAllowedDay].sort()); setNewAllowedDay(''); }} className="px-3 rounded-xl bg-slate-900 text-white disabled:opacity-40"><Plus size={13} /></button>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {allowedDaysDraft.length === 0 && <span className="text-[9px] text-slate-400">Full event / all days</span>}
+                    {allowedDaysDraft.map((day) => <button key={day} type="button" onClick={() => setAllowedDaysDraft(allowedDaysDraft.filter((item) => item !== day))} className="inline-flex items-center gap-1 rounded-full bg-blue-50 border border-blue-100 text-blue-700 px-2 py-1 text-[9px] font-bold"><CalendarDays size={10} />{day}<X size={9} /></button>)}
+                  </div>
+                </div>
+
+                <button type="button" onClick={saveAccessRules} disabled={savingAccessRules} className="w-full py-2.5 rounded-xl bg-slate-900 text-white text-[10px] font-black disabled:opacity-50">
+                  {savingAccessRules ? 'Saving rules...' : 'Save Access Rules'}
+                </button>
+              </div>
+
+              <div className="rounded-2xl border border-slate-100 bg-white p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <History size={14} className="text-slate-600" />
+                    <div>
+                      <p className="text-[10px] font-black text-slate-800">Pass Lifecycle</p>
+                      <p className="text-[9px] text-slate-400">Original → regenerated → revoked → current</p>
+                    </div>
+                  </div>
+                  <span className="text-[9px] font-mono px-2 py-1 rounded-full bg-slate-100 text-slate-600">Current V{selectedParticipant.passVersion || 1}</span>
+                </div>
+
+                <div className="mt-3 space-y-2 max-h-44 overflow-y-auto">
+                  {lifecycleLoading && <p className="text-[9px] text-slate-400 py-2">Loading lifecycle...</p>}
+                  {!lifecycleLoading && passHistory.length === 0 && <div className="rounded-xl bg-slate-50 p-3 text-[9px] text-slate-500"><LockKeyhole size={11} className="inline mr-1" />Current pass is the recorded active generation. New lifecycle actions will appear here.</div>}
+                  {passHistory.map((item) => (
+                    <div key={item.id} className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[9px] font-black uppercase text-slate-700">{String(item.action || '').replace(/_/g, ' ')}</span>
+                        <span className="text-[8px] text-slate-400">{new Date(item.createdAt).toLocaleString()}</span>
+                      </div>
+                      {(item.oldPassId || item.newPassId) && <p className="mt-1 text-[9px] font-mono text-slate-500 break-all">{item.oldPassId || '—'}{item.newPassId && item.newPassId !== item.oldPassId ? ` → ${item.newPassId}` : ''}</p>}
+                      <p className="text-[8px] text-slate-400 mt-1">V{item.passVersion || 1} · {item.performedBy || 'System'}{item.reason ? ` · ${item.reason}` : ''}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => handleRegeneratePass(selectedParticipant)} disabled={regeneratingId === selectedParticipant.id} className="py-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-100 text-amber-800 text-[10px] font-black flex items-center justify-center gap-1.5"><RefreshCcw size={12} /> Regenerate Lost Pass</button>
+                <button type="button" onClick={() => handleRevokePass(selectedParticipant)} disabled={revokingId === selectedParticipant.id || selectedParticipant.status === PassStatus.CANCELLED} className="py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-100 text-rose-700 text-[10px] font-black flex items-center justify-center gap-1.5 disabled:opacity-40"><Ban size={12} /> Revoke Pass</button>
+              </div>
+
               <button type="button" onClick={() => openWhatsAppPassShare(selectedParticipant)} className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs transition-all shadow flex items-center justify-center gap-1.5"><MessageCircle size={14} /> Send via WhatsApp</button>
               <button type="button" onClick={() => { const part = selectedParticipant; setSelectedParticipant(null); setEmailConfirmParticipant(part); }} className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition-all shadow flex items-center justify-center gap-1.5"><Mail size={14} /> Share Pass via Email</button>
             </div>
