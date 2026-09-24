@@ -222,17 +222,17 @@ export default function NotificationCenter() {
   if (!isAdmin || window.location.pathname.startsWith('/register') || window.location.pathname.startsWith('/rsvp/')) return null;
 
   return (
-    <div className="eventz-floating-alerts fixed z-[130] font-sans text-left">
+    <div className="eventz-header-alerts relative z-[130] font-sans text-left shrink-0">
       <button
         onClick={() => { setOpen((prev) => !prev); if (!open) markAllRead(); }}
-        className="relative w-[42px] h-[42px] bg-white/92 hover:bg-white text-slate-700 shadow-lg shadow-slate-900/5 border border-slate-200/70 rounded-full flex items-center justify-center backdrop-blur-xl"
+        className="eventz-alert-trigger relative w-[42px] h-[42px] bg-white/92 hover:bg-white text-slate-700 shadow-lg shadow-slate-900/5 border border-slate-200/70 rounded-full flex items-center justify-center backdrop-blur-xl"
       >
         {unreadCount > 0 ? <BellRing size={15} className="text-yellow-500 animate-pulse" /> : <Bell size={15} className="text-slate-500" />}
         {unreadCount > 0 && <span className="absolute -top-2 -right-2 bg-rose-600 text-white text-[10px] min-w-5 h-5 px-1 rounded-full flex items-center justify-center shadow-lg">{unreadCount}</span>}
       </button>
 
       {open && (
-        <div className="absolute top-14 right-0 w-[min(92vw,430px)] apple-card rounded-[2rem] p-4 animate-slide-up space-y-4">
+        <div className="eventz-header-popover absolute top-14 right-0 w-[min(92vw,430px)] apple-card rounded-[2rem] p-4 animate-slide-up space-y-4">
           <div className="flex items-start justify-between border-b border-slate-100 pb-3">
             <div>
               <h3 className="text-sm font-black text-slate-900 flex items-center gap-2"><BellRing size={15} className="text-yellow-500" /> EVENTZ Push Alerts</h3>
