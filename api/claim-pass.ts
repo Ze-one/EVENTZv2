@@ -1,4 +1,5 @@
 import { processAccessClaim } from '../src/server/access-control.js';
+import { requireSession } from '../src/server/session-auth.js';
 
 function getPassId(req: any) {
   const queryId = req.query?.passId;
@@ -19,6 +20,12 @@ export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+
+  const auth = requireSession(req, ['admin', 'gate_officer']);
+  if (!auth.ok) {
+    res.status(auth.status).json({ error: auth.error });
     return;
   }
 
