@@ -15,8 +15,7 @@ import ScannerComponent from './components/ScannerComponent.tsx';
 import PublicRegistrationView from './components/PublicRegistrationView.tsx';
 import RegistrationManagementView from './components/RegistrationManagementView.tsx';
 import RsvpResponseView from './components/RsvpResponseView.tsx';
-import HeaderAccountControl from './components/HeaderAccountControl.tsx';
-import NotificationCenter from './components/NotificationCenter.tsx';
+import AppHeader from './components/AppHeader.tsx';
 import { 
   Users, Calendar, CheckSquare, BarChart2, LogOut, Camera, ShieldAlert, 
   CheckCircle2, Menu, X, ArrowLeft, Key, UserCheck, ShieldCheck, Eye, EyeOff, UserX, Trash2, RefreshCw, Search, Sparkles
@@ -677,20 +676,16 @@ export default function App() {
   return (
     <div className="eventz-shell min-h-screen flex flex-col font-sans text-slate-800">
       
-      {/* 1. APP HEADER BAR */}
+      <AppHeader
+        currentUser={currentUser}
+        participants={participants}
+        onNavigate={handlePageChange}
+        onMessage={showToast}
+      />
+
+      {/* 1. APP SIDEBAR */}
       <header className="eventz-sidebar z-40">
         <div className="eventz-sidebar-inner">
-          <div className="eventz-sidebar-logo">
-            <button
-              type="button"
-              onClick={() => handlePageChange('dashboard')}
-              className="eventz-brand-pill"
-              aria-label="Go to EVENTZ dashboard"
-            >
-              <Logo size="sm" variant="dark" />
-            </button>
-          </div>
-
           {/* Nav Links Desktop */}
           <nav className="eventz-nav hidden lg:flex text-xs font-bold">
             <button
@@ -907,24 +902,9 @@ export default function App() {
             <p>{activePageMeta.subtitle}</p>
           </div>
 
-          <div className="eventz-topbar-actions">
-            {currentUser.role === UserRole.ADMIN && (
-              <button
-                type="button"
-                onClick={() => handlePageChange('participants')}
-                className="eventz-search-pill text-left"
-                title="Search participants and passes"
-              >
-                <Search size={13} />
-                <span>Search participants, passes...</span>
-              </button>
-            )}
-            <div className="eventz-date-pill hidden 2xl:flex items-center gap-2 rounded-full bg-white/80 border border-slate-100 px-3 py-2 text-[10px] font-bold text-slate-500 shadow-sm">
-              <Sparkles size={12} className="text-yellow-500" />
-              <span>{eventDetails.eventDate || 'Current event'}</span>
-            </div>
-            <NotificationCenter />
-            <HeaderAccountControl />
+          <div className="eventz-date-pill hidden lg:flex items-center gap-2 rounded-full bg-white/80 border border-slate-100 px-3 py-2 text-[10px] font-bold text-slate-500 shadow-sm">
+            <Sparkles size={12} className="text-yellow-500" />
+            <span>{eventDetails.eventDate || 'Current event'}</span>
           </div>
         </div>
 
