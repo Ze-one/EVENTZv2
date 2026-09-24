@@ -54,7 +54,9 @@ function getSender(event: any) {
 
 export function getEmailProviderStatus() {
   return {
-    brevo: Boolean(process.env.BREVO_API_KEY),
+    brevo: Boolean(process.env.BREVO_API_KEY && (process.env.BREVO_FROM || process.env.BREVO_SENDER_EMAIL)),
+    brevoKey: Boolean(process.env.BREVO_API_KEY),
+    brevoSender: Boolean(process.env.BREVO_FROM || process.env.BREVO_SENDER_EMAIL),
     smtp: Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS),
     sendGridLegacy: Boolean(process.env.SENDGRID_API_KEY && process.env.EMAIL_ALLOW_SENDGRID_FALLBACK === 'true'),
     sender: Boolean(process.env.BREVO_FROM || process.env.BREVO_SENDER_EMAIL || process.env.SMTP_FROM || process.env.MAIL_FROM || process.env.SMTP_USER || process.env.SENDGRID_FROM)
@@ -163,7 +165,7 @@ export async function sendParticipantPassEmail(req: any, participant: any, event
   const html = buildEmailHtml(participant, event, customMessage, qrImageUrl, options);
 
   try {
-    if (process.env.BREVO_API_KEY) {
+    if (process.env.BREVO_API_KEY && (process.env.BREVO_FROM || process.env.BREVO_SENDER_EMAIL)) {
       const response = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
         headers: {
