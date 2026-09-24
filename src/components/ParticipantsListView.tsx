@@ -225,7 +225,7 @@ export default function ParticipantsListView({
 
   return (
     <div className="space-y-6 w-full text-left">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+      <div className="eventz-dashboard-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-black text-slate-800">Participants & Credentials Roster</h2>
           <p className="text-slate-400 text-xs">Search credentials, grant/reset access, regenerate pass IDs, and print delegate passes.</p>
@@ -244,7 +244,7 @@ export default function ParticipantsListView({
 
       {actionMessage && <div className="bg-slate-950 text-white rounded-2xl p-3 text-xs font-bold">{actionMessage}</div>}
 
-      <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm flex flex-col md:flex-row gap-3">
+      <div className="eventz-dashboard-panel flex flex-col md:flex-row gap-3">
         <div className="relative flex-1 text-xs">
           <span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-400"><Search size={14} /></span>
           <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search roster by attendee name, email, organization or pass ID..." className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-1 focus:ring-slate-900 transition-all" />
@@ -265,7 +265,7 @@ export default function ParticipantsListView({
 
       <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest pl-1">Showing {filteredList.length} of {participants.length} total registrants</div>
 
-      <div className="bg-white rounded-3xl border border-slate-100 overflow-hidden shadow-sm">
+      <div className="eventz-dashboard-panel !p-0 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-left">
             <thead className="bg-slate-50 text-slate-500 uppercase font-semibold border-b border-slate-100">
@@ -312,8 +312,8 @@ export default function ParticipantsListView({
       </div>
 
       {selectedParticipant && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="bg-white rounded-3xl p-6 shadow-2xl relative w-full max-w-md max-h-[90vh] overflow-y-auto no-scrollbar border border-slate-100 text-left space-y-4">
+        <div className="eventz-overlay fixed inset-0 bg-slate-950/45 backdrop-blur-xl flex items-center justify-center p-4 z-50">
+          <div className="eventz-modal bg-white/95 rounded-[30px] p-6 shadow-2xl relative w-full max-w-md max-h-[90vh] overflow-y-auto no-scrollbar border border-slate-100 text-left space-y-4">
             <button onClick={() => setSelectedParticipant(null)} className="absolute top-4 right-4 p-1.5 bg-slate-50 border border-slate-100 text-slate-400 hover:text-slate-700 rounded-lg transition-all"><X size={15} /></button>
             <div className="space-y-1"><h3 className="font-extrabold text-slate-800 text-sm">Attendee Pass Preview</h3><p className="text-[10px] text-slate-400">Generate, test, print, or download individual participant credential</p></div>
             <div className="border-t border-slate-50 pt-3 space-y-3">
@@ -326,8 +326,8 @@ export default function ParticipantsListView({
       )}
 
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
-          <form onSubmit={handleCreateParticipantSubmit} className="bg-white rounded-3xl p-6 shadow-2xl relative w-full max-w-md border border-slate-100 text-left space-y-4">
+        <div className="eventz-overlay fixed inset-0 bg-slate-950/45 backdrop-blur-xl flex items-center justify-center p-4 z-50">
+          <form onSubmit={handleCreateParticipantSubmit} className="eventz-modal bg-white/95 rounded-[30px] p-6 shadow-2xl relative w-full max-w-md border border-slate-100 text-left space-y-4">
             <button type="button" onClick={() => setShowAddModal(false)} className="absolute top-4 right-4 p-1.5 bg-slate-50 border border-slate-100 text-slate-400 hover:text-slate-700 rounded-lg transition-all"><X size={15} /></button>
             <div className="space-y-1 border-b border-slate-50 pb-2"><h3 className="font-extrabold text-slate-800 text-sm">Add New Registrant</h3><p className="text-[10px] text-slate-400">Add an individual participant directly to the roster</p></div>
             <div className="grid grid-cols-1 gap-3.5 text-xs">
@@ -343,8 +343,8 @@ export default function ParticipantsListView({
       )}
 
       {deleteConfirmInfo?.isOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-[100] animate-fade-in">
-          <div className="bg-white rounded-3xl p-6 shadow-2xl relative w-full max-w-sm border border-slate-100 text-left space-y-4">
+        <div className="eventz-overlay fixed inset-0 bg-slate-950/45 backdrop-blur-xl flex items-center justify-center p-4 z-[100]">
+          <div className="eventz-modal bg-white/95 rounded-[30px] p-6 shadow-2xl relative w-full max-w-sm border border-slate-100 text-left space-y-4">
             <div className="flex items-center gap-3 text-rose-600"><div className="w-10 h-10 bg-rose-50 rounded-xl flex items-center justify-center border border-rose-100"><Trash2 size={18} /></div><h3 className="font-extrabold text-slate-800 text-base">Confirm Deletion</h3></div>
             <div className="text-xs text-slate-500 leading-relaxed">{deleteConfirmInfo.type === 'single' ? <p>Are you sure you want to delete <strong>{deleteConfirmInfo.fullName}</strong> from the participants roster? This action cannot be undone.</p> : <p>Are you sure you want to delete <strong>{deleteConfirmInfo.ids?.length}</strong> selected participant(s)? This action cannot be undone.</p>}</div>
             <div className="flex gap-2.5 pt-2"><button type="button" onClick={() => setDeleteConfirmInfo(null)} className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-all border border-slate-200">Cancel</button><button type="button" onClick={async () => { if (deleteConfirmInfo.type === 'single' && deleteConfirmInfo.participantId) { await onDeleteParticipant(deleteConfirmInfo.participantId); setSelectedParticipantIds(prev => prev.filter(id => id !== deleteConfirmInfo.participantId)); } else if (deleteConfirmInfo.type === 'bulk' && deleteConfirmInfo.ids) { if (onDeleteParticipants) await onDeleteParticipants(deleteConfirmInfo.ids); else for (const id of deleteConfirmInfo.ids) await onDeleteParticipant(id); setSelectedParticipantIds(prev => prev.filter(id => !deleteConfirmInfo.ids!.includes(id))); } setDeleteConfirmInfo(null); }} className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs transition-all shadow">Delete Now</button></div>
@@ -353,8 +353,8 @@ export default function ParticipantsListView({
       )}
 
       {emailConfirmParticipant && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-[100] animate-fade-in">
-          <div className="bg-white rounded-3xl p-6 shadow-2xl relative w-full max-w-md border border-slate-100 text-left space-y-4 animate-scale-in">
+        <div className="eventz-overlay fixed inset-0 bg-slate-950/45 backdrop-blur-xl flex items-center justify-center p-4 z-[100]">
+          <div className="eventz-modal bg-white/95 rounded-[30px] p-6 shadow-2xl relative w-full max-w-md border border-slate-100 text-left space-y-4 animate-scale-in">
             <button onClick={() => setEmailConfirmParticipant(null)} className="absolute top-4 right-4 p-1.5 bg-slate-50 border border-slate-100 text-slate-400 hover:text-slate-700 rounded-lg transition-all"><X size={15} /></button>
             <div className="flex items-center gap-3 text-indigo-600"><div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center border border-indigo-100"><Mail size={18} /></div><div><h3 className="font-extrabold text-slate-800 text-base">Pass Delivery</h3><p className="text-[10px] text-slate-400">Share digital entry credential directly with attendee</p></div></div>
             {!emailConfirmParticipant.email && <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3.5 rounded-2xl text-[11px] font-medium flex items-start gap-2.5"><ShieldAlert size={15} className="text-amber-600 shrink-0 mt-0.5" /><div><span className="font-bold block">No Email Address Configured</span><span>Enter an email address below to update their record and dispatch the pass.</span></div></div>}
@@ -370,8 +370,8 @@ export default function ParticipantsListView({
       )}
 
       {showBulkEmailConfirm && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-[100] animate-fade-in">
-          <div className="bg-white rounded-3xl p-6 shadow-2xl relative w-full max-w-md border border-slate-100 text-left space-y-4">
+        <div className="eventz-overlay fixed inset-0 bg-slate-950/45 backdrop-blur-xl flex items-center justify-center p-4 z-[100]">
+          <div className="eventz-modal bg-white/95 rounded-[30px] p-6 shadow-2xl relative w-full max-w-md border border-slate-100 text-left space-y-4">
             <button onClick={() => setShowBulkEmailConfirm(false)} className="absolute top-4 right-4 p-1.5 bg-slate-50 border border-slate-100 text-slate-400 hover:text-slate-700 rounded-lg transition-all"><X size={15} /></button>
             <div className="flex items-center gap-3 text-emerald-600"><div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center border border-emerald-100"><Mail size={18} /></div><div><h3 className="font-extrabold text-slate-800 text-base">Bulk Pass Delivery</h3><p className="text-[10px] text-slate-400">Share passes with multiple selected registrants</p></div></div>
             <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-3 text-xs"><div className="flex justify-between"><span className="text-slate-500">Selected Recipients Count:</span><span className="font-bold text-slate-800">{selectedParticipantIds.length} attendees</span></div><div className="border-t border-slate-200/60 pt-2.5 space-y-1.5"><label className="text-slate-400 block text-[9px] uppercase font-bold tracking-wider">Custom Message Optional</label><textarea value={bulkCustomMessage} onChange={(e) => setBulkCustomMessage(e.target.value)} rows={3} className="w-full p-2.5 bg-white border border-slate-200 rounded-xl focus:ring-1 focus:ring-emerald-600 focus:outline-none transition-all text-xs text-slate-700 resize-none" /></div></div>
