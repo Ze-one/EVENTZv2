@@ -9,6 +9,8 @@ import path from 'path';
 import crypto from 'crypto';
 import { db } from './src/server/db.js';
 import { PassStatus, ScanResult } from './src/types.js';
+import { createSignedPassToken } from './src/server/pass-security.js';
+import { evaluateAccess, normalizeLocalDate, processAccessClaim, recordDeniedScan, validateSignedTokenForParticipant } from './src/server/access-control.js';
 
 dotenv.config({ path: ['.env.local', '.env'] });
 
@@ -131,37 +133,264 @@ app.post('/api/participants/:id/reset', async (req, res) => {
 });
 
 app.get('/api/verify/:passId', async (req, res) => {
-  const { passId } = req.params;
+  const passId = String(req.params.passId || '').trim().toUpperCase();
+  const token = String(req.query.token || req.query.t || '').trim();
+  const direction = req.query.direction === 'exit' ? 'exit' : 'entry';
+  const localDate = normalizeLocalDate(String(req.query.localDate || ''));
   const { ipAddress, deviceInfo } = getClientInfo(req);
   const scannedBy = (req.query.scannedBy as string) || 'Gate Browser';
   const participant = await db.getParticipantByPassId(passId);
+
   if (!participant) {
-    await db.addScanLog({ eventId: 'event-1', passId, scanResult: ScanResult.INVALID, scannedBy, deviceInfo, ipAddress });
+    await db.addScanLog({
+      eventId: 'event-1',
+      passId,
+      scanResult: ScanResult.INVALID,
+      scannedBy,
+      deviceInfo,
+      ipAddress,
+      direction,
+      offline: false,
+      riskLevel: 'high',
+      riskReason: 'Pass ID does not exist.',
+      qrVerified: false
+    } as any);
     return res.status(404).json({ status: 'Invalid', error: 'This pass does not exist in the system.' });
   }
-  if (participant.status === PassStatus.CANCELLED) {
-    await db.addScanLog({ eventId: 'event-1', participantId: participant.id, passId, scanResult: ScanResult.CANCELLED, scannedBy, deviceInfo, ipAddress });
-    return res.json({ status: 'Cancelled', participant });
+
+  const tokenCheck = validateSignedTokenForParticipant(participant, token || undefined);
+  if (token && !tokenCheck.valid) {
+    await recordDeniedScan({
+      participant,
+      passId,
+      scannedBy,
+      deviceInfo,
+      ipAddress,
+      result: ScanResult.INVALID,
+      reason: tokenCheck.error || 'QR signature validation failed.',
+      qrVerified: false,
+      direction
+    });
+    return res.status(403).json({
+      status: 'InvalidSignature',
+      error: tokenCheck.error || 'This QR code is not a valid current EVENTZ signed credential.',
+      participant
+    });
   }
-  if (participant.status === PassStatus.USED) {
-    await db.addScanLog({ eventId: 'event-1', participantId: participant.id, passId, scanResult: ScanResult.USED, scannedBy, deviceInfo, ipAddress });
-    return res.json({ status: 'Used', participant });
+
+  const access = evaluateAccess(participant, direction, localDate);
+  if (!access.allowed) {
+    const result =
+      access.status === 'Used' ? ScanResult.USED :
+      access.status === 'Cancelled' ? ScanResult.CANCELLED :
+      ScanResult.INVALID;
+
+    await recordDeniedScan({
+      participant,
+      passId,
+      scannedBy,
+      deviceInfo,
+      ipAddress,
+      result,
+      reason: access.reason || 'Access rule denied this scan.',
+      qrVerified: tokenCheck.qrVerified,
+      direction
+    });
+
+    return res.status(access.status === 'Cancelled' ? 200 : 409).json({
+      status: access.status,
+      error: access.reason,
+      participant,
+      qrVerified: tokenCheck.qrVerified,
+      allowedDays: (access as any).allowedDays || participant.allowedDays || []
+    });
   }
-  return res.json({ status: 'Valid', participant });
+
+  return res.json({
+    status: 'Valid',
+    participant,
+    qrVerified: tokenCheck.qrVerified,
+    verificationMode: tokenCheck.qrVerified ? 'signed_qr' : 'manual_lookup',
+    access: {
+      entryMode: participant.entryMode || 'single',
+      presenceState: participant.presenceState || 'outside',
+      accessCount: participant.accessCount || 0,
+      allowedDays: participant.allowedDays || [],
+      requestedDirection: direction,
+      localDate
+    }
+  });
 });
 
-app.post('/api/verify/:passId/claim', async (req, res) => {
-  const { passId } = req.params;
-  const { checkedInBy } = req.body || {};
+app.post('/api/verify/:passId/claim-internal', async (req, res) => {
   const { ipAddress, deviceInfo } = getClientInfo(req);
-  const scannedBy = checkedInBy || 'Gate Officer';
-  const participant = await db.getParticipantByPassId(passId);
-  if (!participant) return res.status(404).json({ error: 'Participant pass not found' });
-  if (participant.status === PassStatus.USED) return res.status(400).json({ error: 'This pass is already checked in.', participant });
-  const checkedInAt = new Date().toISOString();
-  const updated = await db.updateParticipant(participant.id, { status: PassStatus.USED, checkedInAt, checkedInBy: scannedBy });
-  await db.addScanLog({ eventId: 'event-1', participantId: participant.id, passId, scanResult: ScanResult.VALID, scannedBy, deviceInfo, ipAddress });
+  const result = await processAccessClaim({
+    passId: req.params.passId,
+    token: req.body?.token,
+    direction: req.body?.direction,
+    checkedInBy: req.body?.checkedInBy || 'Gate Officer',
+    localDate: req.body?.localDate,
+    deviceInfo,
+    ipAddress
+  });
+  return res.status(result.success ? 200 : 409).json(result);
+});
+
+app.get('/api/offline-manifest', async (_req, res) => {
+  try {
+    const participants = await db.getParticipants();
+    const manifest = participants.map((participant: any) => ({
+      passId: participant.passId,
+      token: createSignedPassToken(participant),
+      participant: {
+        id: participant.id,
+        fullName: participant.fullName,
+        organization: participant.organization || '',
+        category: participant.category || '',
+        status: participant.status,
+        passVersion: participant.passVersion || 1,
+        passRevokedAt: participant.passRevokedAt || null,
+        entryMode: participant.entryMode || 'single',
+        allowedDays: participant.allowedDays || [],
+        presenceState: participant.presenceState || 'outside',
+        accessCount: participant.accessCount || 0
+      }
+    }));
+
+    return res.json({
+      eventId: 'event-1',
+      generatedAt: new Date().toISOString(),
+      count: manifest.length,
+      passes: manifest
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Unable to prepare offline pass manifest.' });
+  }
+});
+
+app.post('/api/offline-sync', async (req, res) => {
+  const transactions = Array.isArray(req.body?.transactions) ? req.body.transactions.slice(0, 500) : [];
+  if (!transactions.length) return res.json({ success: true, processed: 0, results: [] });
+
+  const { ipAddress, deviceInfo } = getClientInfo(req);
+  const results: any[] = [];
+
+  for (const transaction of transactions) {
+    try {
+      const result = await processAccessClaim({
+        passId: transaction.passId,
+        token: transaction.token,
+        direction: transaction.direction,
+        checkedInBy: transaction.checkedInBy || 'Offline Gate',
+        localDate: transaction.localDate,
+        deviceInfo: transaction.deviceInfo || deviceInfo,
+        ipAddress,
+        offline: true,
+        syncId: transaction.syncId,
+        scannedAt: transaction.scannedAt
+      });
+      results.push({ syncId: transaction.syncId, ...result });
+    } catch (error: any) {
+      results.push({ syncId: transaction.syncId, success: false, status: 'Error', error: error?.message || 'Offline reconciliation failed.' });
+    }
+  }
+
+  return res.json({
+    success: true,
+    processed: results.length,
+    accepted: results.filter((item) => item.success).length,
+    rejected: results.filter((item) => !item.success).length,
+    results
+  });
+});
+
+app.get('/api/participants/:id/pass-history', async (req, res) => {
+  const participant = await db.getParticipantById(req.params.id);
+  if (!participant) return res.status(404).json({ error: 'Participant not found.' });
+  const history = await db.getPassHistory(participant.id);
+  return res.json({
+    participant: {
+      id: participant.id,
+      fullName: participant.fullName,
+      passId: participant.passId,
+      passVersion: participant.passVersion || 1,
+      status: participant.status
+    },
+    history
+  });
+});
+
+app.post('/api/participants/:id/revoke', async (req, res) => {
+  const participant = await db.getParticipantById(req.params.id);
+  if (!participant) return res.status(404).json({ error: 'Participant not found.' });
+
+  const performedBy = String(req.body?.performedBy || 'Admin');
+  const reason = String(req.body?.reason || 'Pass revoked by administrator').trim();
+  const revokedAt = new Date().toISOString();
+  const nextVersion = Number(participant.passVersion || 1) + 1;
+
+  const updated = await db.updateParticipant(participant.id, {
+    status: PassStatus.CANCELLED,
+    passRevokedAt: revokedAt,
+    passRevokedBy: performedBy,
+    passRevocationReason: reason,
+    passVersion: nextVersion
+  } as any);
+
+  await db.addPassHistory({
+    eventId: participant.eventId || 'event-1',
+    participantId: participant.id,
+    action: 'revoked',
+    oldPassId: participant.passId,
+    newPassId: participant.passId,
+    passVersion: nextVersion,
+    performedBy,
+    reason
+  });
+
   return res.json({ success: true, participant: updated });
+});
+
+app.post('/api/participants/:id/access-rules', async (req, res) => {
+  const participant = await db.getParticipantById(req.params.id);
+  if (!participant) return res.status(404).json({ error: 'Participant not found.' });
+
+  const entryMode = ['single', 'multiple', 'reentry'].includes(req.body?.entryMode)
+    ? req.body.entryMode
+    : participant.entryMode || 'single';
+
+  const allowedDays = Array.isArray(req.body?.allowedDays)
+    ? Array.from(new Set(req.body.allowedDays.map((value: any) => String(value)).filter((value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value)))).slice(0, 31)
+    : participant.allowedDays || [];
+
+  const updated = await db.updateParticipant(participant.id, {
+    entryMode,
+    allowedDays,
+    presenceState: entryMode === 'reentry' ? participant.presenceState || 'outside' : participant.presenceState || 'outside'
+  } as any);
+
+  await db.addPassHistory({
+    eventId: participant.eventId || 'event-1',
+    participantId: participant.id,
+    action: 'access_rules_updated',
+    oldPassId: participant.passId,
+    newPassId: participant.passId,
+    passVersion: participant.passVersion || 1,
+    performedBy: String(req.body?.performedBy || 'Admin'),
+    metadata: { entryMode, allowedDays }
+  });
+
+  return res.json({ success: true, participant: updated });
+});
+
+app.get('/api/security-alerts', async (_req, res) => {
+  return res.json(await db.getSecurityAlerts());
+});
+
+app.post('/api/security-alerts/:id/resolve', async (req, res) => {
+  const alert = await db.resolveSecurityAlert(req.params.id, String(req.body?.resolvedBy || 'Admin'));
+  if (!alert) return res.status(404).json({ error: 'Security alert not found.' });
+  return res.json({ success: true, alert });
 });
 
 app.get('/api/scan-logs', async (_req, res) => res.json(await db.getScanLogs()));
