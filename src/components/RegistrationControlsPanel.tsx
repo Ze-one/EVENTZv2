@@ -52,6 +52,7 @@ const toLocalDateTime = (value?: string | null) => {
 
 export default function RegistrationControlsPanel({ value, onChange }: Props) {
   const [categories, setCategories] = useState<Category[]>([]);
+  const [participants, setParticipants] = useState<Array<{ category?: string; status?: string }>>([]);
   const [categoryDrafts, setCategoryDrafts] = useState<Record<string, { capacity: string; isPublic: boolean; isActive: boolean }>>({});
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,16 +72,19 @@ export default function RegistrationControlsPanel({ value, onChange }: Props) {
     setLoading(true);
     setMessage('');
     try {
-      const [categoryRes, inviteRes] = await Promise.all([
+      const [categoryRes, inviteRes, participantRes] = await Promise.all([
         fetch('/api/attendee-requests?mode=categories-admin', { cache: 'no-store' }),
-        fetch('/api/attendee-requests?mode=invitations', { cache: 'no-store' })
+        fetch('/api/attendee-requests?mode=invitations', { cache: 'no-store' }),
+        fetch('/api/participants', { cache: 'no-store' })
       ]);
       const categoryData = await categoryRes.json();
       const inviteData = await inviteRes.json();
+      const participantData = await participantRes.json();
       if (!categoryRes.ok) throw new Error(categoryData.error || 'Unable to load categories.');
       if (!inviteRes.ok) throw new Error(inviteData.error || 'Unable to load invitation links.');
       setCategories(categoryData);
       setInvitations(inviteData);
+      if (participantRes.ok && Array.isArray(participantData)) setParticipants(participantData);
       const drafts: Record<string, { capacity: string; isPublic: boolean; isActive: boolean }> = {};
       categoryData.forEach((item: Category) => {
         drafts[item.id] = {
@@ -206,6 +210,20 @@ export default function RegistrationControlsPanel({ value, onChange }: Props) {
     }
   };
 
+  const activeParticipants = useMemo(
+    () => participants.filter((participant) => participant.status !== 'Cancelled'),
+    [participants]
+  );
+
+  const categoryUsage = useMemo(() => {
+    const usage: Record<string, number> = {};
+    activeParticipants.forEach((participant) => {
+      const key = participant.category || 'Attendees';
+      usage[key] = (usage[key] || 0) + 1;
+    });
+    return usage;
+  }, [activeParticipants]);
+
   const registrationStatus = useMemo(() => {
     if (value.registrationEnabled === false) return { label: 'Closed', className: 'bg-rose-50 text-rose-700 border-rose-100' };
     if (value.registrationDeadline && new Date(value.registrationDeadline).getTime() < Date.now()) return { label: 'Deadline passed', className: 'bg-amber-50 text-amber-700 border-amber-100' };
@@ -279,7 +297,9 @@ export default function RegistrationControlsPanel({ value, onChange }: Props) {
             placeholder="Unlimited"
             className="mt-2 w-full p-3 rounded-xl border border-slate-200 bg-white text-xs font-mono"
           />
-          <p className="text-[9px] text-slate-400 mt-2">Counts active participant passes, including approved guests.</p>
+          <p className="text-[9px] text-slate-400 mt-2">
+            {activeParticipants.length} active pass{activeParticipants.length === 1 ? '' : 'es'} currently count toward capacity{value.eventCapacity ? ` · ${Math.max(0, value.eventCapacity - activeParticipants.length)} remaining` : ' · unlimited'}.
+          </p>
         </div>
 
         <label className="rounded-2xl border border-slate-100 bg-[#f7f8fb] p-4 flex items-start justify-between gap-4 cursor-pointer">
@@ -341,7 +361,7 @@ export default function RegistrationControlsPanel({ value, onChange }: Props) {
               <div key={category.id} className="rounded-2xl border border-slate-100 bg-white p-3 grid md:grid-cols-[1fr_130px_110px_100px_auto] gap-3 items-center">
                 <div className="min-w-0">
                   <p className="text-xs font-black text-slate-800 truncate">{category.name}</p>
-                  <p className="text-[9px] text-slate-400 truncate">{category.description || 'Participant category'}</p>
+                  <p className="text-[9px] text-slate-400 truncate">{category.description || 'Participant category'} · {categoryUsage[category.name] || 0} active</p>
                 </div>
                 <input
                   type="number"
