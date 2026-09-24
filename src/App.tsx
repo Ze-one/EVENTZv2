@@ -568,14 +568,14 @@ export default function App() {
   // LOGIN SCREEN GUARD
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col justify-between p-6 text-white font-sans relative overflow-hidden">
+      <div className="eventz-auth-page min-h-screen flex flex-col justify-between p-6 text-slate-900 font-sans relative overflow-hidden">
         {/* Top bar logo */}
         <div className="w-full flex justify-center py-4">
-          <Logo size="md" variant="light" />
+          <Logo size="md" variant="dark" />
         </div>
 
         {/* Login Central Card */}
-        <div className="w-full max-w-md mx-auto bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-8 shadow-2xl relative z-10 space-y-6 text-left">
+        <div className="eventz-card w-full max-w-md mx-auto bg-white/95 border border-white rounded-[32px] p-6 md:p-8 relative z-10 space-y-6 text-left">
           <div className="text-center space-y-1.5">
             <h2 className="text-xl md:text-2xl font-black tracking-tight">Access Control Login</h2>
             <p className="text-slate-400 text-xs leading-relaxed">
@@ -599,7 +599,7 @@ export default function App() {
                 onChange={(e) => setLoginEmail(e.target.value)}
                 placeholder="Enter your email"
                 required
-                className="w-full p-3 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-yellow-500 text-white transition-all"
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-yellow-500 text-slate-900 transition-all"
               />
             </div>
 
@@ -615,7 +615,7 @@ export default function App() {
                   onChange={(e) => setLoginPassword(e.target.value)}
                   placeholder="Enter your password"
                   required
-                  className="w-full pl-10 pr-10 p-3 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-yellow-500 text-white transition-all"
+                  className="w-full pl-10 pr-10 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-yellow-500 text-slate-900 transition-all"
                 />
                 <button
                   type="button"
@@ -644,7 +644,7 @@ export default function App() {
             </button>
           </form>
 
-          <div className="pt-4 border-t border-slate-800 text-center">
+          <div className="pt-4 border-t border-slate-100 text-center">
             <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-2">Attending the event?</p>
             <button
               type="button"
@@ -652,7 +652,7 @@ export default function App() {
                 window.history.pushState({}, '', '/register');
                 setCurrentPage('public-registration');
               }}
-              className="w-full py-3 rounded-xl border border-slate-700 bg-slate-950/40 hover:bg-slate-800 text-yellow-400 text-xs font-black transition-all"
+              className="w-full py-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-white text-[#0b1f4d] text-xs font-black transition-all hover:shadow-md"
             >
               Open Public Registration
             </button>
@@ -661,7 +661,7 @@ export default function App() {
         </div>
 
         {/* Footer info */}
-        <div className="text-slate-500 text-[10px] text-center font-mono py-4">
+        <div className="text-slate-500 text-[10px] text-center font-mono py-4 relative z-10">
           ETSNTECH Event Access System v1.4.2 • Protected Client Node
         </div>
 
@@ -679,7 +679,7 @@ export default function App() {
       <header className="eventz-sidebar z-40">
         <div className="eventz-sidebar-inner">
           <div className="eventz-sidebar-logo">
-            <Logo size="md" className="cursor-pointer" onClick={() => handlePageChange('dashboard')} />
+            <Logo size="md" variant="dark" className="cursor-pointer" onClick={() => handlePageChange('dashboard')} />
           </div>
 
           {/* Nav Links Desktop */}
