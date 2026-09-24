@@ -13,6 +13,7 @@ import {
   Search,
   Share2,
   Sparkles,
+  Trash2,
   UserCheck,
   UserX,
   Users,
@@ -54,6 +55,8 @@ export default function RegistrationManagementView({ adminName, onChanged }: Pro
   const [message, setMessage] = useState('');
   const [selected, setSelected] = useState<Registration | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission
   );
@@ -211,6 +214,28 @@ export default function RegistrationManagementView({ adminName, onChanged }: Pro
     }
   };
 
+  const clearRegistrationList = async () => {
+    setClearing(true);
+    setMessage('');
+    try {
+      const res = await fetch('/api/attendee-requests?mode=registrations', { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not clear registration history.');
+      setSelected(null);
+      setItems([]);
+      setFilter('pending');
+      setSearch('');
+      setShowClearConfirm(false);
+      setMessage(`Registration list cleared (${data.cleared || 0} records). Existing participant passes were preserved.`);
+      onChanged?.();
+    } catch (err: any) {
+      setMessage(err?.message || 'Could not clear registration history.');
+    } finally {
+      setClearing(false);
+    }
+  };
+
+
   return (
     <div className="space-y-6 text-left">
       <style>{`
@@ -276,6 +301,15 @@ export default function RegistrationManagementView({ adminName, onChanged }: Pro
               className="px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-black text-slate-700 hover:bg-slate-50 transition-all flex items-center gap-2"
             >
               <ExternalLink size={14} /> Open Portal
+            </button>
+
+            <button
+              onClick={() => setShowClearConfirm(true)}
+              disabled={items.length === 0 || clearing}
+              className="px-4 py-2.5 rounded-xl border border-rose-200 bg-rose-50 text-xs font-black text-rose-700 hover:bg-rose-100 disabled:opacity-40 transition-all flex items-center gap-2"
+              title="Clear registration request history"
+            >
+              <Trash2 size={14} /> Clear List
             </button>
 
             <button
@@ -402,6 +436,47 @@ export default function RegistrationManagementView({ adminName, onChanged }: Pro
         <Users size={16} className="text-yellow-400 shrink-0 mt-0.5" />
         <p>Click any registrant row to open the full registration card. Approving creates the participant and pass; waitlisted and rejected requests do not consume participant passes.</p>
       </div>
+
+      {showClearConfirm && (
+        <div
+          className="eventz-overlay fixed inset-0 z-[130] bg-slate-950/45 backdrop-blur-xl flex items-center justify-center p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !clearing) setShowClearConfirm(false);
+          }}
+        >
+          <div className="eventz-modal w-full max-w-md rounded-[30px] bg-white/95 border border-white shadow-2xl p-6">
+            <div className="w-11 h-11 rounded-2xl bg-rose-50 border border-rose-100 text-rose-600 flex items-center justify-center">
+              <Trash2 size={18} />
+            </div>
+            <h3 className="text-lg font-black text-slate-950 mt-4">Clear registration list?</h3>
+            <p className="text-xs text-slate-500 leading-relaxed mt-2">
+              This deletes the registration-request history for the current event. Approved participants and their generated passes remain in Manage Passes.
+            </p>
+            <div className="mt-5 rounded-2xl bg-amber-50 border border-amber-100 p-3 text-[10px] text-amber-800 font-semibold">
+              {items.length} registration record{items.length === 1 ? '' : 's'} will be removed from this list.
+            </div>
+            <div className="grid grid-cols-2 gap-2 mt-5">
+              <button
+                type="button"
+                disabled={clearing}
+                onClick={() => setShowClearConfirm(false)}
+                className="py-3 rounded-xl border border-slate-200 bg-white text-slate-700 text-xs font-black hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={clearing}
+                onClick={clearRegistrationList}
+                className="py-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {clearing ? <RefreshCw size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                {clearing ? 'Clearing...' : 'Clear List'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {selected && (
         <div
