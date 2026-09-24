@@ -764,18 +764,15 @@ export default function App() {
             </button>
           </nav>
 
-          {/* User Profile & Logout Desktop */}
-          <div className="eventz-sidebar-account hidden lg:flex items-center gap-3 text-xs">
-            <div className="space-y-0.5 text-right">
-              <p className="font-extrabold text-slate-800">{currentUser.name}</p>
-              <p className="text-[9px] text-slate-400 font-mono uppercase tracking-wider">{currentUser.role.replace('_', ' ')}</p>
-            </div>
+          {/* Sidebar logout mirrors the lightweight reference navigation footer. */}
+          <div className="eventz-sidebar-account hidden lg:block text-xs">
             <button
               onClick={handleLogout}
-              className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-900 rounded-xl transition-all"
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-slate-500 hover:text-slate-900 rounded-xl transition-all"
               title="Terminate Secure Session"
             >
               <LogOut size={14} />
+              <span className="text-[10px] font-black">Log out</span>
             </button>
           </div>
 
