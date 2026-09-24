@@ -1,0 +1,17 @@
+{
+  "name": "EVENTZ",
+  "short_name": "EVENTZ",
+  "description": "Manage your event access by ETS.NTECH",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0b1f4d",
+  "icons": [
+    {
+      "src": "/assets/eventz-official-logo.webp",
+      "sizes": "1200x600",
+      "type": "image/webp",
+      "purpose": "any"
+    }
+  ]
+}
