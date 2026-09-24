@@ -135,6 +135,14 @@ app.post(
       const { data: publicData } = storage.storage.from('eventz-media').getPublicUrl(objectPath);
       const mediaType = contentType === 'image/gif' ? 'gif' : contentType.startsWith('video/') ? 'video' : 'image';
 
+      const event = await db.updateEvent('event-1', {
+        dashboardMediaUrl: publicData.publicUrl,
+        dashboardMediaPath: objectPath,
+        dashboardMediaType: mediaType,
+        dashboardMediaName: originalName,
+        dashboardMediaEnabled: true
+      } as any);
+
       return res.status(201).json({
         success: true,
         url: publicData.publicUrl,
@@ -142,7 +150,8 @@ app.post(
         mediaType,
         name: originalName,
         size: body.length,
-        contentType
+        contentType,
+        event
       });
     } catch (error: any) {
       return res.status(500).json({ error: error?.message || 'Dashboard media upload failed.' });
