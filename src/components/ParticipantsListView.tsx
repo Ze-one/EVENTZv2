@@ -64,6 +64,14 @@ export default function ParticipantsListView({
   const [actionMessage, setActionMessage] = useState('');
 
   useEffect(() => {
+    const headerSearch = sessionStorage.getItem('eventz_header_search');
+    if (headerSearch) {
+      setSearchTerm(headerSearch);
+      sessionStorage.removeItem('eventz_header_search');
+    }
+  }, []);
+
+  useEffect(() => {
     if (emailConfirmParticipant) {
       setCustomEmail(emailConfirmParticipant.email || '');
       setCustomMessage('');
