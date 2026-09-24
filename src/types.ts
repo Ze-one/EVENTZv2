@@ -71,6 +71,11 @@ export interface Participant {
   updatedAt: string;
   lastEmailStatus?: 'Queued' | 'Sending' | 'Delivered' | 'Failed';
   lastEmailError?: string | null;
+  rsvpToken?: string;
+  rsvpStatus?: 'pending' | 'yes' | 'maybe' | 'declined';
+  rsvpUpdatedAt?: string;
+  rsvpDeclinedAt?: string;
+  passCancelledByRsvp?: boolean;
 }
 
 export interface ScanLog {
