@@ -146,9 +146,11 @@ export default function RegistrationManagementView({ adminName, onChanged }: Pro
       } else if (decision === 'approved') {
         const emailStatus = data.registration?.approvalEmailStatus;
         setMessage(
-          emailStatus === 'sent'
-            ? 'Registration approved, pass created, and approval email sent.'
-            : emailStatus === 'skipped'
+          emailStatus === 'queued'
+            ? 'Registration approved, pass created, and the approval email was accepted by the transactional provider.'
+            : emailStatus === 'sent'
+              ? 'Registration approved, pass created, and approval email sent.'
+              : emailStatus === 'skipped'
               ? 'Registration approved and pass created. No approval email was sent because no valid email address is available.'
               : emailStatus === 'failed'
                 ? `Registration approved and pass created, but the approval email failed: ${data.registration?.approvalEmailError || 'delivery error'}`
@@ -518,8 +520,8 @@ export default function RegistrationManagementView({ adminName, onChanged }: Pro
                 </div>
                 <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
                   <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Approval email</p>
-                  <p className={`text-sm font-black mt-2 ${selected.approvalEmailStatus === 'failed' ? 'text-rose-700' : selected.approvalEmailStatus === 'sent' ? 'text-emerald-700' : 'text-slate-900'}`}>
-                    {selected.approvalEmailStatus === 'sent' ? 'Sent' : selected.approvalEmailStatus === 'failed' ? 'Failed' : selected.approvalEmailStatus === 'skipped' ? 'Skipped' : 'Not sent'}
+                  <p className={`text-sm font-black mt-2 ${selected.approvalEmailStatus === 'failed' ? 'text-rose-700' : selected.approvalEmailStatus === 'sent' ? 'text-emerald-700' : selected.approvalEmailStatus === 'queued' ? 'text-blue-700' : 'text-slate-900'}`}>
+                    {selected.approvalEmailStatus === 'queued' ? 'Queued' : selected.approvalEmailStatus === 'sent' ? 'Sent' : selected.approvalEmailStatus === 'failed' ? 'Failed' : selected.approvalEmailStatus === 'skipped' ? 'Skipped' : 'Not sent'}
                   </p>
                   {selected.approvalEmailSentAt && <p className="text-[9px] text-slate-400 mt-1">{new Date(selected.approvalEmailSentAt).toLocaleString()}</p>}
                 </div>
