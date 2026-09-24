@@ -11,6 +11,7 @@ import { db } from './src/server/db.js';
 import { PassStatus, ScanResult } from './src/types.js';
 import { createSignedPassToken } from './src/server/pass-security.js';
 import { evaluateAccess, normalizeLocalDate, processAccessClaim, recordDeniedScan, validateSignedTokenForParticipant } from './src/server/access-control.js';
+import { createSessionToken, requireSession } from './src/server/session-auth.js';
 
 dotenv.config({ path: ['.env.local', '.env'] });
 
@@ -38,7 +39,8 @@ app.post('/api/auth/login', async (req, res) => {
     const user = await db.verifyUser(email, password);
     if (!user) return res.status(401).json({ error: 'Invalid email or password' });
     const { passwordHash, ...safeUser } = user;
-    return res.json({ user: safeUser });
+    const sessionToken = createSessionToken(safeUser);
+    return res.json({ user: safeUser, sessionToken });
   } catch (error: any) {
     return res.status(500).json({ error: error?.message || 'Login failed' });
   }
@@ -236,7 +238,9 @@ app.post('/api/verify/:passId/claim-internal', async (req, res) => {
   return res.status(result.success ? 200 : 409).json(result);
 });
 
-app.get('/api/offline-manifest', async (_req, res) => {
+app.get('/api/offline-manifest', async (req, res) => {
+  const auth = requireSession(req, ['admin', 'gate_officer']);
+  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
   try {
     const participants = await db.getParticipants();
     const manifest = participants.map((participant: any) => ({
@@ -269,6 +273,8 @@ app.get('/api/offline-manifest', async (_req, res) => {
 });
 
 app.post('/api/offline-sync', async (req, res) => {
+  const auth = requireSession(req, ['admin', 'gate_officer']);
+  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
   const transactions = Array.isArray(req.body?.transactions) ? req.body.transactions.slice(0, 500) : [];
   if (!transactions.length) return res.json({ success: true, processed: 0, results: [] });
 
@@ -305,6 +311,8 @@ app.post('/api/offline-sync', async (req, res) => {
 });
 
 app.get('/api/participants/:id/pass-history', async (req, res) => {
+  const auth = requireSession(req, ['admin']);
+  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
   const participant = await db.getParticipantById(req.params.id);
   if (!participant) return res.status(404).json({ error: 'Participant not found.' });
   const history = await db.getPassHistory(participant.id);
@@ -321,6 +329,8 @@ app.get('/api/participants/:id/pass-history', async (req, res) => {
 });
 
 app.post('/api/participants/:id/revoke', async (req, res) => {
+  const auth = requireSession(req, ['admin']);
+  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
   const participant = await db.getParticipantById(req.params.id);
   if (!participant) return res.status(404).json({ error: 'Participant not found.' });
 
@@ -352,6 +362,8 @@ app.post('/api/participants/:id/revoke', async (req, res) => {
 });
 
 app.post('/api/participants/:id/access-rules', async (req, res) => {
+  const auth = requireSession(req, ['admin']);
+  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
   const participant = await db.getParticipantById(req.params.id);
   if (!participant) return res.status(404).json({ error: 'Participant not found.' });
 
@@ -383,11 +395,15 @@ app.post('/api/participants/:id/access-rules', async (req, res) => {
   return res.json({ success: true, participant: updated });
 });
 
-app.get('/api/security-alerts', async (_req, res) => {
+app.get('/api/security-alerts', async (req, res) => {
+  const auth = requireSession(req, ['admin']);
+  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
   return res.json(await db.getSecurityAlerts());
 });
 
 app.post('/api/security-alerts/:id/resolve', async (req, res) => {
+  const auth = requireSession(req, ['admin']);
+  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
   const alert = await db.resolveSecurityAlert(req.params.id, String(req.body?.resolvedBy || 'Admin'));
   if (!alert) return res.status(404).json({ error: 'Security alert not found.' });
   return res.json({ success: true, alert });
