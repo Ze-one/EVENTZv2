@@ -745,12 +745,13 @@ export default function App() {
         participants={participants}
         onNavigate={handlePageChange}
         onMessage={showToast}
+        menuOpen={mobileMenuOpen}
+        onMenuToggle={() => setMobileMenuOpen((open) => !open)}
       />
 
-      {/* 1. APP SIDEBAR */}
+      {/* Desktop sidebar navigation */}
       <header className="eventz-sidebar z-40">
         <div className="eventz-sidebar-inner">
-          {/* Nav Links Desktop */}
           <nav className="eventz-nav hidden lg:flex text-xs font-bold">
             <button
               onClick={() => handlePageChange('dashboard')}
@@ -761,7 +762,7 @@ export default function App() {
             >
               <BarChart2 size={13} /> <span>Dashboard</span>
             </button>
-            
+
             {currentUser.role === UserRole.ADMIN && (
               <>
                 <button
@@ -828,7 +829,6 @@ export default function App() {
             </button>
           </nav>
 
-          {/* Sidebar logout mirrors the lightweight reference navigation footer. */}
           <div className="eventz-sidebar-account hidden lg:block text-xs">
             <button
               onClick={handleLogout}
@@ -839,118 +839,88 @@ export default function App() {
               <span className="text-[10px] font-black">Log out</span>
             </button>
           </div>
-
-          {/* Mobile hamburger menu trigger */}
-          <div className="flex items-center gap-2 lg:hidden">
-            <button
-              onClick={() => handlePageChange('scanner')}
-              className="p-2 bg-slate-800 text-yellow-400 rounded-xl"
-              title="Camera Scanner"
-            >
-              <Camera size={16} />
-            </button>
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2 bg-slate-800 text-slate-300 hover:text-white rounded-xl"
-            >
-              {mobileMenuOpen ? <X size={16} /> : <Menu size={16} />}
-            </button>
-          </div>
         </div>
+      </header>
 
-        {/* MOBILE NAV DRAWER MENU */}
-        {mobileMenuOpen && (
-          <div className="lg:hidden bg-slate-900 border-t border-slate-800 p-4 space-y-3 text-xs font-bold text-left animate-fade-in">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <div className="space-y-0.5">
-                <p className="font-extrabold text-white text-sm">{currentUser.name}</p>
-                <p className="text-[9px] text-yellow-500 font-mono uppercase tracking-wider">{currentUser.role.replace('_', ' ')}</p>
-              </div>
+      {/* Mobile navigation lives in a true overlay drawer, never in the page flow. */}
+      {mobileMenuOpen && (
+        <div className="eventz-mobile-nav-overlay lg:hidden">
+          <button
+            type="button"
+            className="eventz-mobile-nav-backdrop"
+            onClick={() => setMobileMenuOpen(false)}
+            aria-label="Close navigation"
+          />
+
+          <aside className="eventz-mobile-nav-drawer">
+            <div className="eventz-mobile-nav-head">
+              <button type="button" onClick={() => handlePageChange('dashboard')} className="eventz-mobile-nav-logo">
+                <Logo size="sm" variant="dark" />
+              </button>
               <button
-                onClick={handleLogout}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-[11px]"
+                type="button"
+                onClick={() => setMobileMenuOpen(false)}
+                className="eventz-mobile-nav-close"
+                aria-label="Close menu"
               >
-                <LogOut size={13} />
-                Logout
+                <X size={18} />
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 text-center pt-2">
-              <button
-                onClick={() => handlePageChange('dashboard')}
-                className={`p-3 rounded-xl border ${
-                  currentPage === 'dashboard' ? 'bg-slate-800 text-yellow-400 border-slate-700' : 'bg-slate-950/40 text-slate-300 border-slate-800'
-                }`}
-              >
-                Dashboard
-              </button>
+            <div className="eventz-mobile-nav-user">
+              <div className="w-10 h-10 rounded-2xl bg-[#0b1f4d] text-white flex items-center justify-center font-black text-xs">
+                {currentUser.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-black text-slate-900 truncate">{currentUser.name}</p>
+                <p className="text-[9px] font-black uppercase tracking-[0.14em] text-slate-400 mt-0.5">
+                  {currentUser.role.replace('_', ' ')}
+                </p>
+              </div>
+            </div>
 
-              <button
-                onClick={() => handlePageChange('scanner')}
-                className={`p-3 rounded-xl border ${
-                  currentPage === 'scanner' ? 'bg-slate-800 text-yellow-400 border-slate-700' : 'bg-slate-950/40 text-slate-300 border-slate-800'
-                }`}
-              >
-                Gates Scanner
+            <nav className="eventz-mobile-nav-list">
+              <button onClick={() => handlePageChange('dashboard')} data-active={currentPage === 'dashboard'}>
+                <BarChart2 size={17} /><span>Dashboard</span>
               </button>
 
               {currentUser.role === UserRole.ADMIN && (
                 <>
-                  <button
-                    onClick={() => handlePageChange('event-settings')}
-                    className={`p-3 rounded-xl border ${
-                      currentPage === 'event-settings' ? 'bg-slate-800 text-yellow-400 border-slate-700' : 'bg-slate-950/40 text-slate-300 border-slate-800'
-                    }`}
-                  >
-                    Pass Designer
+                  <button onClick={() => handlePageChange('event-settings')} data-active={currentPage === 'event-settings'}>
+                    <Calendar size={17} /><span>Pass Designer</span>
                   </button>
-
-                  <button
-                    onClick={() => handlePageChange('upload')}
-                    className={`p-3 rounded-xl border ${
-                      currentPage === 'upload' ? 'bg-slate-800 text-yellow-400 border-slate-700' : 'bg-slate-950/40 text-slate-300 border-slate-800'
-                    }`}
-                  >
-                    Upload roster
+                  <button onClick={() => handlePageChange('upload')} data-active={currentPage === 'upload'}>
+                    <Users size={17} /><span>Upload roster</span>
                   </button>
-
-                  <button
-                    onClick={() => handlePageChange('registrations')}
-                    className={`p-3 rounded-xl border relative ${
-                      currentPage === 'registrations' ? 'bg-slate-800 text-yellow-400 border-slate-700' : 'bg-slate-950/40 text-slate-300 border-slate-800'
-                    }`}
-                  >
-                    Registrations
+                  <button onClick={() => handlePageChange('registrations')} data-active={currentPage === 'registrations'}>
+                    <CheckSquare size={17} /><span>Registrations</span>
                     {pendingRegistrations > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1 rounded-full bg-yellow-400 text-slate-950 text-[9px] font-black flex items-center justify-center border-2 border-slate-900">
-                        {pendingRegistrations > 99 ? '99+' : pendingRegistrations}
-                      </span>
+                      <span className="eventz-mobile-nav-badge">{pendingRegistrations > 99 ? '99+' : pendingRegistrations}</span>
                     )}
                   </button>
-
-                  <button
-                    onClick={() => handlePageChange('participants')}
-                    className={`p-3 rounded-xl border ${
-                      currentPage === 'participants' ? 'bg-slate-800 text-yellow-400 border-slate-700' : 'bg-slate-950/40 text-slate-300 border-slate-800'
-                    }`}
-                  >
-                    Manage Passes
+                  <button onClick={() => handlePageChange('participants')} data-active={currentPage === 'participants'}>
+                    <Users size={17} /><span>Manage Passes</span>
                   </button>
-
-                  <button
-                    onClick={() => handlePageChange('reports')}
-                    className={`p-3 rounded-xl border ${
-                      currentPage === 'reports' ? 'bg-slate-800 text-yellow-400 border-slate-700' : 'bg-slate-950/40 text-slate-300 border-slate-800'
-                    }`}
-                  >
-                    Scan Audit Logs
+                  <button onClick={() => handlePageChange('reports')} data-active={currentPage === 'reports'}>
+                    <BarChart2 size={17} /><span>Analytics & Audit</span>
                   </button>
                 </>
               )}
+
+              <button onClick={() => handlePageChange('scanner')} data-active={currentPage === 'scanner'} className="eventz-mobile-nav-scanner">
+                <Camera size={17} /><span>Gate Scanner</span>
+              </button>
+            </nav>
+
+            <div className="eventz-mobile-nav-footer">
+              <button type="button" onClick={handleLogout}>
+                <LogOut size={16} />
+                <span>Log out</span>
+              </button>
             </div>
-          </div>
-        )}
-      </header>
+          </aside>
+        </div>
+      )}
 
       {/* 2. MAIN APPLICATION CONTENT PORTAL */}
       <main className="eventz-main flex-1 pb-20">
