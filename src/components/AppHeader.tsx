@@ -201,7 +201,7 @@ export default function AppHeader({ currentUser, participants, onNavigate, onMes
           <button
             type="button"
             onClick={() => onNavigate('event-settings')}
-            className="eventz-header-circle eventz-header-circle-accent"
+            className="eventz-header-circle eventz-header-circle-accent eventz-header-settings"
             title="Event and pass settings"
             aria-label="Event settings"
           >
@@ -212,7 +212,7 @@ export default function AppHeader({ currentUser, participants, onNavigate, onMes
         <button
           type="button"
           onClick={() => setTheme((value) => value === 'light' ? 'dark' : 'light')}
-          className="eventz-header-circle"
+          className="eventz-header-circle eventz-header-theme"
           title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
           aria-label="Toggle appearance"
         >
@@ -225,7 +225,7 @@ export default function AppHeader({ currentUser, participants, onNavigate, onMes
           <button
             type="button"
             onClick={openEmailActivity}
-            className="eventz-header-circle"
+            className="eventz-header-circle eventz-header-mail"
             title="Email delivery activity"
             aria-label="Email activity"
           >
