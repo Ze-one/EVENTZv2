@@ -65,6 +65,117 @@ app.post('/api/event', async (req, res) => {
   return res.json(event);
 });
 
+app.post('/api/dashboard-media/upload-ticket', async (req, res) => {
+  const auth = requireSession(req, ['admin']);
+  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+  try {
+    const contentType = String(req.body?.contentType || '').trim().toLowerCase();
+    const fileName = String(req.body?.fileName || 'dashboard-media');
+    const fileSize = Number(req.body?.fileSize || 0);
+    const allowed = new Set([
+      'image/png',
+      'image/jpeg',
+      'image/webp',
+      'image/gif',
+      'video/mp4',
+      'video/webm'
+    ]);
+
+    if (!allowed.has(contentType)) {
+      return res.status(415).json({ error: 'Unsupported dashboard media type.' });
+    }
+    if (!Number.isFinite(fileSize) || fileSize <= 0 || fileSize > 12 * 1024 * 1024) {
+      return res.status(413).json({ error: 'Dashboard media must be between 1 byte and 12 MB.' });
+    }
+
+    const supabaseUrl = process.env.SUPABASE_URL || '';
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+    const anonKey = process.env.SUPABASE_ANON_KEY || '';
+    if (!supabaseUrl || !serviceKey || !anonKey) {
+      return res.status(500).json({ error: 'Supabase Storage client configuration is incomplete.' });
+    }
+
+    const extensionByType: Record<string, string> = {
+      'image/png': 'png',
+      'image/jpeg': 'jpg',
+      'image/webp': 'webp',
+      'image/gif': 'gif',
+      'video/mp4': 'mp4',
+      'video/webm': 'webm'
+    };
+
+    const cleanName = fileName.replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 100);
+    const safeBase = cleanName.replace(/\.[^.]+$/, '').replace(/^-+|-+$/g, '') || 'dashboard-media';
+    const objectPath = `event-1/dashboard/${Date.now()}-${crypto.randomBytes(5).toString('hex')}-${safeBase}.${extensionByType[contentType]}`;
+
+    const storage = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
+    const { data, error } = await storage.storage
+      .from('eventz-media')
+      .createSignedUploadUrl(objectPath, { upsert: false });
+
+    if (error || !data?.token) throw new Error(error?.message || 'Unable to create signed upload URL.');
+
+    return res.json({
+      success: true,
+      bucket: 'eventz-media',
+      path: objectPath,
+      token: data.token,
+      signedUrl: data.signedUrl,
+      supabaseUrl,
+      anonKey
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Unable to prepare dashboard media upload.' });
+  }
+});
+
+app.post('/api/dashboard-media/activate', async (req, res) => {
+  const auth = requireSession(req, ['admin']);
+  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+  try {
+    const objectPath = String(req.body?.path || '').trim();
+    const mediaType = String(req.body?.mediaType || '');
+    const name = String(req.body?.name || 'Dashboard visual').slice(0, 140);
+
+    if (!objectPath.startsWith('event-1/dashboard/')) {
+      return res.status(400).json({ error: 'Invalid dashboard media path.' });
+    }
+    if (!['image', 'gif', 'video'].includes(mediaType)) {
+      return res.status(400).json({ error: 'Invalid dashboard media type.' });
+    }
+
+    const supabaseUrl = process.env.SUPABASE_URL || '';
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+    if (!supabaseUrl || !serviceKey) {
+      return res.status(500).json({ error: 'Supabase Storage is not configured on the server.' });
+    }
+
+    const storage = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
+    const { data: publicData } = storage.storage.from('eventz-media').getPublicUrl(objectPath);
+
+    const event = await db.updateEvent('event-1', {
+      dashboardMediaUrl: publicData.publicUrl,
+      dashboardMediaPath: objectPath,
+      dashboardMediaType: mediaType,
+      dashboardMediaName: name,
+      dashboardMediaEnabled: true
+    } as any);
+
+    return res.json({
+      success: true,
+      event,
+      url: publicData.publicUrl,
+      path: objectPath,
+      mediaType,
+      name
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Unable to activate dashboard media.' });
+  }
+});
+
 app.post(
   '/api/dashboard-media',
   express.raw({
