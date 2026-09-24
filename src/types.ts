@@ -66,6 +66,16 @@ export interface EventDetails {
     placeholder?: string;
     options?: string[];
   }>;
+  dashboardMediaUrl?: string | null;
+  dashboardMediaPath?: string | null;
+  dashboardMediaType?: 'image' | 'gif' | 'video' | null;
+  dashboardMediaName?: string | null;
+  dashboardMediaEnabled?: boolean;
+  dashboardMediaFit?: 'cover' | 'contain';
+  dashboardMediaPosition?: 'center' | 'top' | 'bottom' | 'left' | 'right';
+  dashboardMediaOverlay?: number;
+  dashboardMediaAutoplay?: boolean;
+  dashboardMediaLoop?: boolean;
   createdAt: string;
   updatedAt: string;
 }
