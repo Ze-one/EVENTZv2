@@ -343,6 +343,26 @@ async function getRegistrations() {
   return [...(db.registrationRequests || [])].sort((a: any, b: any) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
 }
 
+async function clearRegistrations() {
+  const supabase = getSupabase();
+
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('registrationRequests')
+      .delete()
+      .eq('eventId', 'event-1')
+      .select('id');
+    if (error) throw new Error(error.message);
+    return { cleared: data?.length || 0 };
+  }
+
+  const local = readLocalDb();
+  const before = (local.registrationRequests || []).length;
+  local.registrationRequests = (local.registrationRequests || []).filter((item: any) => item.eventId && item.eventId !== 'event-1');
+  writeLocalDb(local);
+  return { cleared: before - local.registrationRequests.length };
+}
+
 async function createRegistration(body: any) {
   const fullName = String(body.fullName || '').trim();
   const email = normalizeEmail(body.email);
@@ -652,6 +672,16 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
+    if (req.method === 'DELETE' && mode === 'registrations') {
+      const result = await clearRegistrations();
+      res.status(200).json({
+        success: true,
+        ...result,
+        message: 'Registration request history cleared. Existing participant passes were preserved.'
+      });
+      return;
+    }
+
     if (req.method === 'POST' && req.body?.action === 'public_registration') {
       const registration = await createRegistration(req.body);
       res.status(201).json({ success: true, registration, message: 'Registration submitted for review.' });
@@ -731,7 +761,7 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
-    res.setHeader('Allow', 'GET, POST, PUT');
+    res.setHeader('Allow', 'GET, POST, PUT, DELETE');
     res.status(405).json({ error: 'Method not allowed' });
   } catch (error: any) {
     const message = error?.message || 'Registration request failed.';
