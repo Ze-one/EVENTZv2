@@ -14,6 +14,7 @@ import ReportsView from './components/ReportsView.tsx';
 import ScannerComponent from './components/ScannerComponent.tsx';
 import PublicRegistrationView from './components/PublicRegistrationView.tsx';
 import RegistrationManagementView from './components/RegistrationManagementView.tsx';
+import RsvpResponseView from './components/RsvpResponseView.tsx';
 import { 
   Users, Calendar, CheckSquare, BarChart2, LogOut, Camera, ShieldAlert, 
   CheckCircle2, Menu, X, ArrowLeft, Key, UserCheck, ShieldCheck, Eye, EyeOff, UserX, Trash2, RefreshCw
@@ -32,6 +33,7 @@ export default function App() {
   // Navigation
   const [currentPage, setCurrentPage] = useState<string>('dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [rsvpToken, setRsvpToken] = useState('');
 
   // Authentication states
   const [loginEmail, setLoginEmail] = useState('');
@@ -117,6 +119,14 @@ export default function App() {
       if (path === '/register' || path.startsWith('/register/')) {
         setCurrentPage('public-registration');
         return;
+      }
+      if (path.startsWith('/rsvp/')) {
+        const token = path.split('/rsvp/')[1];
+        if (token) {
+          setRsvpToken(token);
+          setCurrentPage('rsvp');
+          return;
+        }
       }
       if (path.startsWith('/verify/')) {
         const passId = path.split('/verify/')[1];
@@ -522,6 +532,20 @@ export default function App() {
         event={eventDetails}
         onBack={() => {
           window.history.pushState({}, '', '/');
+          setCurrentPage('dashboard');
+        }}
+      />
+    );
+  }
+
+  // SECURE RSVP ROUTE — tokenized link sent only after approval.
+  if (currentPage === 'rsvp' && rsvpToken) {
+    return (
+      <RsvpResponseView
+        token={rsvpToken}
+        onStaffLogin={() => {
+          window.history.pushState({}, '', '/');
+          setRsvpToken('');
           setCurrentPage('dashboard');
         }}
       />
