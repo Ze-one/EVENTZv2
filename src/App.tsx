@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { User, EventDetails, Participant, ScanLog, UserRole, PassStatus, ScanResult, EmailLog } from './types.js';
 import Logo from './components/Logo.tsx';
 import DashboardView from './components/DashboardView.tsx';
@@ -25,6 +25,9 @@ export default function App() {
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [scanLogs, setScanLogs] = useState<ScanLog[]>([]);
   const [emailLogs, setEmailLogs] = useState<EmailLog[]>([]);
+  const [pendingRegistrations, setPendingRegistrations] = useState(0);
+  const knownRegistrationIdsRef = useRef<Set<string>>(new Set());
+  const registrationFeedReadyRef = useRef(false);
   
   // Navigation
   const [currentPage, setCurrentPage] = useState<string>('dashboard');
@@ -139,6 +142,66 @@ export default function App() {
       clearInterval(interval);
     };
   }, []);
+
+  // Registration notification feed for administrators.
+  // First poll establishes a baseline; later polls surface only genuinely new submissions.
+  useEffect(() => {
+    if (!currentUser || currentUser.role !== UserRole.ADMIN) {
+      registrationFeedReadyRef.current = false;
+      knownRegistrationIdsRef.current = new Set();
+      setPendingRegistrations(0);
+      return;
+    }
+
+    let cancelled = false;
+
+    const pollRegistrations = async () => {
+      try {
+        const res = await fetch('/api/attendee-requests?mode=registrations', { cache: 'no-store' });
+        if (!res.ok) return;
+        const registrations = await res.json();
+        if (cancelled || !Array.isArray(registrations)) return;
+
+        const pending = registrations.filter((item: any) => item.status === 'pending');
+        setPendingRegistrations(pending.length);
+
+        const currentIds = new Set<string>(registrations.map((item: any) => String(item.id)));
+        if (!registrationFeedReadyRef.current) {
+          knownRegistrationIdsRef.current = currentIds;
+          registrationFeedReadyRef.current = true;
+          return;
+        }
+
+        const newItems = registrations.filter((item: any) => !knownRegistrationIdsRef.current.has(String(item.id)));
+        knownRegistrationIdsRef.current = currentIds;
+
+        if (newItems.length > 0) {
+          const newest = newItems[0];
+          const label = newItems.length === 1
+            ? `New registration from ${newest.fullName || 'a participant'}.`
+            : `${newItems.length} new event registrations received.`;
+          showToast(label, 'info');
+
+          if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+            new Notification('EVENTZ · New registration', {
+              body: newItems.length === 1
+                ? `${newest.fullName || 'New participant'} · ${newest.categoryName || 'Attendee'}`
+                : `${newItems.length} new registrations are waiting for review.`
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Registration notification polling failed:', error);
+      }
+    };
+
+    pollRegistrations();
+    const timer = window.setInterval(pollRegistrations, 10000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [currentUser?.id, currentUser?.role]);
 
   // API: Handle Login Submit
   const handleLoginSubmit = async (e: React.FormEvent) => {
@@ -611,11 +674,16 @@ export default function App() {
                 </button>
                 <button
                   onClick={() => handlePageChange('registrations')}
-                  className={`px-4 py-2 rounded-xl transition-all ${
+                  className={`px-4 py-2 rounded-xl transition-all flex items-center gap-2 ${
                     currentPage === 'registrations' ? 'bg-slate-800 text-yellow-400' : 'text-slate-300 hover:bg-slate-800/50'
                   }`}
                 >
-                  Registrations
+                  <span>Registrations</span>
+                  {pendingRegistrations > 0 && (
+                    <span className="min-w-5 h-5 px-1.5 rounded-full bg-yellow-400 text-slate-950 text-[9px] font-black flex items-center justify-center">
+                      {pendingRegistrations > 99 ? '99+' : pendingRegistrations}
+                    </span>
+                  )}
                 </button>
                 <button
                   onClick={() => handlePageChange('participants')}
@@ -737,11 +805,16 @@ export default function App() {
 
                   <button
                     onClick={() => handlePageChange('registrations')}
-                    className={`p-3 rounded-xl border ${
+                    className={`p-3 rounded-xl border relative ${
                       currentPage === 'registrations' ? 'bg-slate-800 text-yellow-400 border-slate-700' : 'bg-slate-950/40 text-slate-300 border-slate-800'
                     }`}
                   >
                     Registrations
+                    {pendingRegistrations > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1 rounded-full bg-yellow-400 text-slate-950 text-[9px] font-black flex items-center justify-center border-2 border-slate-900">
+                        {pendingRegistrations > 99 ? '99+' : pendingRegistrations}
+                      </span>
+                    )}
                   </button>
 
                   <button
