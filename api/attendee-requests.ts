@@ -1073,6 +1073,21 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
+    if (req.method === 'GET' && mode === 'categories-admin') {
+      res.status(200).json(await getCategories(false));
+      return;
+    }
+
+    if (req.method === 'GET' && mode === 'registration-config') {
+      res.status(200).json(await getRegistrationConfig(String(req.query?.invite || '')));
+      return;
+    }
+
+    if (req.method === 'GET' && mode === 'invitations') {
+      res.status(200).json(await getInvitations());
+      return;
+    }
+
     if (req.method === 'GET' && mode === 'registrations') {
       res.status(200).json(await getRegistrations());
       return;
@@ -1093,15 +1108,33 @@ export default async function handler(req: any, res: any) {
       return;
     }
 
+    if (req.method === 'DELETE' && mode === 'invitation') {
+      const deleted = await deleteInvitation(String(req.query?.id || ''));
+      res.status(deleted ? 200 : 404).json({ success: deleted });
+      return;
+    }
+
     if (req.method === 'POST' && req.body?.action === 'public_registration') {
       const registration = await createRegistration(req.body);
       res.status(201).json({ success: true, registration, message: 'Registration submitted for review.' });
       return;
     }
 
+    if (req.method === 'POST' && req.body?.action === 'create_invitation') {
+      const invitation = await createInvitation(req.body);
+      res.status(201).json({ success: true, invitation });
+      return;
+    }
+
     if (req.method === 'PUT' && req.body?.kind === 'rsvp') {
       const state = await updateRsvp(String(req.body.token || ''), req.body.response);
       res.status(200).json({ success: true, ...state });
+      return;
+    }
+
+    if (req.method === 'PUT' && req.body?.kind === 'category') {
+      const category = await updateCategoryControl(req.body);
+      res.status(200).json({ success: true, category });
       return;
     }
 
