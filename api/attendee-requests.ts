@@ -749,6 +749,7 @@ async function reviewRegistration(id: string, decision: RegistrationStatus, revi
     if (request.status === 'approved') throw new Error('This registration is already approved.');
 
     let participant: any = null;
+    let guestParticipants: any[] = [];
     let event: any = null;
     let rsvpToken = request.rsvpToken || null;
 
@@ -757,19 +758,25 @@ async function reviewRegistration(id: string, decision: RegistrationStatus, revi
         ? await supabase.from('participantCategories').select('*').eq('id', request.categoryId).maybeSingle()
         : { data: null };
 
-      if (category?.capacity != null) {
-        const { count } = await supabase
-          .from('participants')
-          .select('*', { count: 'exact', head: true })
-          .eq('eventId', 'event-1')
-          .eq('category', request.categoryName);
-        if ((count || 0) >= category.capacity) {
-          const { data, error } = await supabase.from('registrationRequests')
-            .update({ status: 'waitlisted', reviewedAt: now, reviewedBy })
-            .eq('id', id).select().single();
-          if (error) throw new Error(error.message);
-          return { registration: data, participant: null, capacityReached: true };
-        }
+      const requestedSlots = Math.max(1, Number(request.requestedSlots || 1));
+      const availability = await getRegistrationAvailability(category || { name: request.categoryName }, requestedSlots);
+
+      if (!availability.hasSpace) {
+        const { data, error } = await supabase.from('registrationRequests')
+          .update({ status: 'waitlisted', reviewedAt: now, reviewedBy })
+          .eq('id', id).select().single();
+        if (error) throw new Error(error.message);
+        return {
+          registration: data,
+          participant: null,
+          guestParticipants: [],
+          capacityReached: true,
+          capacity: {
+            eventRemaining: availability.eventRemaining,
+            categoryRemaining: availability.categoryRemaining,
+            requestedSlots
+          }
+        };
       }
 
       if (request.email) {
@@ -786,6 +793,9 @@ async function reviewRegistration(id: string, decision: RegistrationStatus, revi
       const { data: eventData } = await supabase.from('events').select('*').eq('id', 'event-1').maybeSingle();
       event = eventData || await db.getEvent();
       rsvpToken = rsvpToken || makeRsvpToken();
+
+      let sequence = count || 0;
+      sequence += 1;
       participant = {
         id: `part-${Math.random().toString(36).slice(2, 9)}`,
         eventId: 'event-1',
@@ -794,15 +804,45 @@ async function reviewRegistration(id: string, decision: RegistrationStatus, revi
         email: request.email || '',
         organization: request.organization || '',
         category: request.categoryName || 'Attendees',
-        passId: makePassId((count || 0) + 1, event?.eventDate),
+        passId: makePassId(sequence, event?.eventDate),
         status: 'Not Used',
         rsvpToken,
         rsvpStatus: request.rsvpStatus || 'yes',
         passCancelledByRsvp: false,
+        registrationId: request.id,
+        isGuest: false,
+        guestOfParticipantId: null,
         createdAt: now,
         updatedAt: now
       };
-      const { error: participantError } = await supabase.from('participants').insert(participant);
+
+      const guests = Array.isArray(request.guests) ? request.guests : [];
+      guestParticipants = guests.map((guest: any) => {
+        sequence += 1;
+        return {
+          id: `part-${Math.random().toString(36).slice(2, 9)}`,
+          eventId: 'event-1',
+          fullName: String(guest.fullName || 'Guest').trim(),
+          phone: guest.phone || '',
+          email: guest.email || '',
+          organization: request.organization || '',
+          category: request.categoryName || 'Attendees',
+          passId: makePassId(sequence, event?.eventDate),
+          status: 'Not Used',
+          rsvpToken: makeRsvpToken(),
+          rsvpStatus: 'pending',
+          passCancelledByRsvp: false,
+          registrationId: request.id,
+          isGuest: true,
+          guestOfParticipantId: participant.id,
+          createdAt: now,
+          updatedAt: now
+        };
+      });
+
+      const { error: participantError } = await supabase
+        .from('participants')
+        .insert([participant, ...guestParticipants]);
       if (participantError) throw new Error(participantError.message);
     }
 
@@ -828,6 +868,7 @@ async function reviewRegistration(id: string, decision: RegistrationStatus, revi
     if (error) throw new Error(error.message);
 
     let emailDelivery: any = null;
+    const guestEmailDeliveries: any[] = [];
 
     if (participant && isValidEmail(participant.email)) {
       const subject = `Registration Approved: ${event?.eventName || 'Your Event'}`;
@@ -847,7 +888,9 @@ async function reviewRegistration(id: string, decision: RegistrationStatus, revi
           participant,
           event,
           log.id,
-          'Your registration has been approved. Your entrance pass is included below. Please use the RSVP button to confirm or update your attendance.',
+          guestParticipants.length
+            ? `Your registration has been approved together with ${guestParticipants.length} guest pass(es). Your own entrance pass is included below. Guest passes are issued separately.`
+            : 'Your registration has been approved. Your entrance pass is included below. Please use the RSVP button to confirm or update your attendance.',
           { subject, approval: true, rsvpUrl }
         );
         const { data: updatedRegistration } = await supabase
@@ -877,7 +920,37 @@ async function reviewRegistration(id: string, decision: RegistrationStatus, revi
       }
     }
 
-    return { registration, participant, emailDelivery };
+    for (const guest of guestParticipants) {
+      if (!isValidEmail(guest.email)) continue;
+      const subject = `Your Guest Pass: ${event?.eventName || 'Your Event'}`;
+      const log = await db.addEmailLog({
+        eventId: 'event-1',
+        participantId: guest.id,
+        participantName: guest.fullName,
+        recipientEmail: normalizeEmail(guest.email),
+        subject,
+        status: 'Sending'
+      });
+      try {
+        const delivery = await sendParticipantPassEmail(
+          req,
+          guest,
+          event,
+          log.id,
+          'You have been registered as a guest for this event. Your individual entrance pass is included below.',
+          {
+            subject,
+            approval: true,
+            rsvpUrl: `${getRequestOrigin(req)}/rsvp/${encodeURIComponent(guest.rsvpToken)}`
+          }
+        );
+        guestEmailDeliveries.push({ participantId: guest.id, status: 'queued', delivery });
+      } catch (guestMailError: any) {
+        guestEmailDeliveries.push({ participantId: guest.id, status: 'failed', error: guestMailError?.message || 'Guest pass email failed.' });
+      }
+    }
+
+    return { registration, participant, guestParticipants, emailDelivery, guestEmailDeliveries };
   }
 
   const local = readLocalDb();
@@ -889,7 +962,22 @@ async function reviewRegistration(id: string, decision: RegistrationStatus, revi
   if (request.status === 'approved') throw new Error('This registration is already approved.');
 
   let participant: any = null;
+  let guestParticipants: any[] = [];
   if (decision === 'approved') {
+    const category = (local.participantCategories || []).find((item: any) => item.id === request.categoryId) || { name: request.categoryName };
+    const requestedSlots = Math.max(1, Number(request.requestedSlots || 1));
+    const availability = await getRegistrationAvailability(category, requestedSlots);
+    if (!availability.hasSpace) {
+      request.status = 'waitlisted';
+      request.reviewedAt = now;
+      request.reviewedBy = reviewedBy || 'Admin';
+      local.registrationRequests[index] = request;
+      writeLocalDb(local);
+      return { registration: request, participant: null, guestParticipants: [], capacityReached: true };
+    }
+
+    let sequence = local.participants.length;
+    sequence += 1;
     participant = {
       id: `part-${Math.random().toString(36).slice(2, 9)}`,
       eventId: 'event-1',
@@ -898,26 +986,54 @@ async function reviewRegistration(id: string, decision: RegistrationStatus, revi
       email: request.email || '',
       organization: request.organization || '',
       category: request.categoryName || 'Attendees',
-      passId: makePassId(local.participants.length + 1, local.events?.[0]?.eventDate),
+      passId: makePassId(sequence, local.events?.[0]?.eventDate),
       status: 'Not Used',
       rsvpToken: request.rsvpToken || makeRsvpToken(),
       rsvpStatus: request.rsvpStatus || 'yes',
       passCancelledByRsvp: false,
+      registrationId: request.id,
+      isGuest: false,
       createdAt: now,
       updatedAt: now
     };
     local.participants.push(participant);
+
+    const guests = Array.isArray(request.guests) ? request.guests : [];
+    guestParticipants = guests.map((guest: any) => {
+      sequence += 1;
+      return {
+        id: `part-${Math.random().toString(36).slice(2, 9)}`,
+        eventId: 'event-1',
+        fullName: guest.fullName || 'Guest',
+        phone: guest.phone || '',
+        email: guest.email || '',
+        organization: request.organization || '',
+        category: request.categoryName || 'Attendees',
+        passId: makePassId(sequence, local.events?.[0]?.eventDate),
+        status: 'Not Used',
+        rsvpToken: makeRsvpToken(),
+        rsvpStatus: 'pending',
+        passCancelledByRsvp: false,
+        registrationId: request.id,
+        isGuest: true,
+        guestOfParticipantId: participant.id,
+        createdAt: now,
+        updatedAt: now
+      };
+    });
+    local.participants.push(...guestParticipants);
     request.participantId = participant.id;
     request.rsvpToken = participant.rsvpToken;
     request.approvalEmailStatus = 'not_sent';
   }
+
   request.status = decision;
   request.reviewedAt = now;
   request.reviewedBy = reviewedBy || 'Admin';
   request.rejectionReason = decision === 'rejected' ? String(rejectionReason || '').trim() : null;
   local.registrationRequests[index] = request;
   writeLocalDb(local);
-  return { registration: request, participant };
+  return { registration: request, participant, guestParticipants };
 }
 
 async function applyLegacyRequest(reqItem: LegacyRequest) {
