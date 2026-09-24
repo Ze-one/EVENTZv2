@@ -48,9 +48,9 @@ export default async function handler(req: any, res: any) {
   }
 
   const providerStatus = getEmailProviderStatus();
-  if (!providerStatus.sendGrid && !providerStatus.smtp) {
+  if (!providerStatus.brevo && !providerStatus.smtp && !providerStatus.sendGridLegacy) {
     res.status(500).json({
-      error: 'No real email provider configured. Add SENDGRID_API_KEY and SENDGRID_FROM in Vercel, or configure SMTP variables.',
+      error: 'Brevo email is not configured. Add BREVO_API_KEY and BREVO_FROM in Vercel.',
       providerStatus
     });
     return;
@@ -58,7 +58,7 @@ export default async function handler(req: any, res: any) {
 
   if (!providerStatus.sender) {
     res.status(500).json({
-      error: 'No sender address configured. Add SENDGRID_FROM or SMTP_FROM in Vercel using a verified sender email.',
+      error: 'No sender address configured. Add BREVO_FROM using a sender verified in Brevo.',
       providerStatus
     });
     return;
