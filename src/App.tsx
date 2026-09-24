@@ -12,6 +12,8 @@ import UploadParticipants from './components/UploadParticipants.tsx';
 import ParticipantsListView from './components/ParticipantsListView.tsx';
 import ReportsView from './components/ReportsView.tsx';
 import ScannerComponent from './components/ScannerComponent.tsx';
+import PublicRegistrationView from './components/PublicRegistrationView.tsx';
+import RegistrationManagementView from './components/RegistrationManagementView.tsx';
 import { 
   Users, Calendar, CheckSquare, BarChart2, LogOut, Camera, ShieldAlert, 
   CheckCircle2, Menu, X, ArrowLeft, Key, UserCheck, ShieldCheck, Eye, EyeOff, UserX, Trash2, RefreshCw
@@ -109,6 +111,10 @@ export default function App() {
     // Direct url scanning verify checker
     const checkPathnameVerify = async () => {
       const path = window.location.pathname;
+      if (path === '/register' || path.startsWith('/register/')) {
+        setCurrentPage('public-registration');
+        return;
+      }
       if (path.startsWith('/verify/')) {
         const passId = path.split('/verify/')[1];
         if (passId) {
@@ -446,6 +452,19 @@ export default function App() {
     );
   }
 
+  // PUBLIC REGISTRATION ROUTE — deliberately available without staff authentication.
+  if (currentPage === 'public-registration') {
+    return (
+      <PublicRegistrationView
+        event={eventDetails}
+        onBack={() => {
+          window.history.pushState({}, '', '/');
+          setCurrentPage('dashboard');
+        }}
+      />
+    );
+  }
+
   // LOGIN SCREEN GUARD
   if (!currentUser) {
     return (
@@ -525,6 +544,20 @@ export default function App() {
             </button>
           </form>
 
+          <div className="pt-4 border-t border-slate-800 text-center">
+            <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-2">Attending the event?</p>
+            <button
+              type="button"
+              onClick={() => {
+                window.history.pushState({}, '', '/register');
+                setCurrentPage('public-registration');
+              }}
+              className="w-full py-3 rounded-xl border border-slate-700 bg-slate-950/40 hover:bg-slate-800 text-yellow-400 text-xs font-black transition-all"
+            >
+              Open Public Registration
+            </button>
+          </div>
+
         </div>
 
         {/* Footer info */}
@@ -575,6 +608,14 @@ export default function App() {
                   }`}
                 >
                   Upload roster
+                </button>
+                <button
+                  onClick={() => handlePageChange('registrations')}
+                  className={`px-4 py-2 rounded-xl transition-all ${
+                    currentPage === 'registrations' ? 'bg-slate-800 text-yellow-400' : 'text-slate-300 hover:bg-slate-800/50'
+                  }`}
+                >
+                  Registrations
                 </button>
                 <button
                   onClick={() => handlePageChange('participants')}
@@ -692,6 +733,15 @@ export default function App() {
                     }`}
                   >
                     Upload roster
+                  </button>
+
+                  <button
+                    onClick={() => handlePageChange('registrations')}
+                    className={`p-3 rounded-xl border ${
+                      currentPage === 'registrations' ? 'bg-slate-800 text-yellow-400 border-slate-700' : 'bg-slate-950/40 text-slate-300 border-slate-800'
+                    }`}
+                  >
+                    Registrations
                   </button>
 
                   <button
@@ -968,6 +1018,14 @@ export default function App() {
           <UploadParticipants 
             onConfirm={handleConfirmBatchUpload} 
             onCancel={() => handlePageChange('dashboard')}
+          />
+        )}
+
+        {/* TAB PATH: REGISTRATION REVIEW */}
+        {currentPage === 'registrations' && currentUser.role === UserRole.ADMIN && (
+          <RegistrationManagementView
+            adminName={currentUser.name}
+            onChanged={fetchAllData}
           />
         )}
 
