@@ -44,11 +44,22 @@ export default async function handler(req: any, res: any) {
     const oldPassId = participant.passId;
     const newPassId = await makeUniquePassId(indexHint);
 
+    const nextVersion = Number(participant.passVersion || 1) + 1;
     const updates: any = {
       passId: newPassId,
-      status: resetCheckIn ? PassStatus.NOT_USED : participant.status,
+      passVersion: nextVersion,
+      status: resetCheckIn ? PassStatus.NOT_USED : (participant.status === PassStatus.CANCELLED ? PassStatus.NOT_USED : participant.status),
       checkedInAt: resetCheckIn ? null : participant.checkedInAt,
-      checkedInBy: resetCheckIn ? null : participant.checkedInBy
+      checkedInBy: resetCheckIn ? null : participant.checkedInBy,
+      passRevokedAt: null,
+      passRevokedBy: null,
+      passRevocationReason: null,
+      presenceState: 'outside',
+      accessCount: resetCheckIn ? 0 : Number(participant.accessCount || 0),
+      lastAccessAt: resetCheckIn ? null : participant.lastAccessAt,
+      lastAccessGate: resetCheckIn ? null : participant.lastAccessGate,
+      lastExitAt: resetCheckIn ? null : participant.lastExitAt,
+      lastExitGate: resetCheckIn ? null : participant.lastExitGate
     };
 
     const updated = await db.updateParticipant(participantId, updates as any);
@@ -64,10 +75,25 @@ export default async function handler(req: any, res: any) {
       scanResult: ScanResult.CANCELLED,
       scannedBy: `${regeneratedBy} regenerated pass to ${newPassId}`,
       deviceInfo: req.headers['user-agent'] || 'Admin Console',
-      ipAddress: String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '0.0.0.0')
+      ipAddress: String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '0.0.0.0'),
+      riskLevel: 'low',
+      riskReason: 'Previous pass generation invalidated by administrator regeneration.',
+      qrVerified: false
+    } as any);
+
+    await db.addPassHistory({
+      eventId: participant.eventId || 'event-1',
+      participantId: participant.id,
+      action: 'regenerated',
+      oldPassId,
+      newPassId,
+      passVersion: nextVersion,
+      performedBy: regeneratedBy,
+      reason: String(req.body?.reason || 'Lost/replaced pass regeneration'),
+      metadata: { resetCheckIn }
     });
 
-    res.status(200).json({ success: true, participant: updated, oldPassId, newPassId });
+    res.status(200).json({ success: true, participant: updated, oldPassId, newPassId, passVersion: nextVersion });
   } catch (error: any) {
     res.status(500).json({ error: error?.message || 'Pass regeneration failed.' });
   }
