@@ -1201,3 +1201,112 @@ select:focus {
     transition-duration: .01ms !important;
   }
 }
+
+
+/* ---------- Dashboard cinematic event hero ---------- */
+
+.eventz-dashboard-hero {
+  isolation: isolate;
+  transform: translateZ(0);
+}
+
+.eventz-dashboard-hero-media {
+  transform: scale(1.035);
+  transform-origin: 72% 48%;
+  animation: eventzHeroMediaDrift 14s cubic-bezier(.22,.61,.36,1) infinite alternate;
+  will-change: transform;
+}
+
+.eventz-dashboard-hero-media img,
+.eventz-dashboard-hero-media video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  filter: saturate(1.06) contrast(1.03);
+}
+
+.eventz-hero-control {
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(255,255,255,.10);
+  color: rgba(255,255,255,.92);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10px 28px rgba(0,0,0,.14);
+}
+
+.eventz-hero-control:hover {
+  background: rgba(255,255,255,.17);
+  transform: translateY(-2px) scale(1.03);
+}
+
+.eventz-hero-primary {
+  min-height: 40px;
+  border-radius: 999px;
+  padding: 0 16px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(11,31,77,.84);
+  color: #fff;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 10px;
+  font-weight: 900;
+  box-shadow: 0 12px 32px rgba(0,0,0,.18);
+}
+
+.eventz-hero-primary:hover {
+  background: rgba(18,43,99,.96);
+  transform: translateY(-2px);
+}
+
+.eventz-hero-stats {
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.05),
+    0 18px 48px rgba(0,0,0,.12);
+}
+
+@keyframes eventzHeroMediaDrift {
+  0% {
+    transform: scale(1.035) translate3d(0,0,0);
+  }
+  100% {
+    transform: scale(1.075) translate3d(-1.2%, -.8%, 0);
+  }
+}
+
+@media (max-width: 760px) {
+  .eventz-dashboard-hero {
+    min-height: 315px !important;
+  }
+
+  .eventz-dashboard-hero-media {
+    width: 100% !important;
+    height: 72%;
+    top: auto !important;
+    bottom: 0;
+    opacity: .72;
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,.35) 22%, #000 48%, #000 100%) !important;
+    mask-image: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,.35) 22%, #000 48%, #000 100%) !important;
+  }
+
+  .eventz-hero-stats {
+    width: 100%;
+    max-width: 100% !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .eventz-dashboard-hero-media {
+    animation: none !important;
+    transform: scale(1.035) !important;
+  }
+}
