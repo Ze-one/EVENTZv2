@@ -188,18 +188,18 @@ export default function HeaderAccountControl() {
   const initials = currentUser.name.slice(0, 2).toUpperCase();
 
   return (
-    <div className="fixed top-[10px] right-[150px] z-[150] font-sans text-left">
+    <div className="eventz-floating-profile fixed z-[150] font-sans text-left">
       <button
         onClick={() => setOpen((prev) => !prev)}
-        className="relative h-[56px] bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-2xl pl-2 pr-3 flex items-center gap-2 shadow-xl transition-all"
+        className="relative h-[42px] bg-white/92 hover:bg-white border border-slate-200/70 rounded-full pl-1.5 pr-3 flex items-center gap-2 shadow-lg shadow-slate-900/5 backdrop-blur-xl transition-all"
         title="Open profile and account control"
       >
-        <div className="w-10 h-10 rounded-xl bg-slate-950 text-yellow-400 flex items-center justify-center overflow-hidden font-black text-xs border border-slate-700">
+        <div className="w-8 h-8 rounded-full bg-[#0b1f4d] text-yellow-400 flex items-center justify-center overflow-hidden font-black text-[10px] border border-slate-200">
           {avatar ? <img src={avatar} alt="Profile" className="w-full h-full object-cover" /> : initials}
         </div>
         <div className="hidden xl:block leading-tight text-right min-w-[110px]">
-          <p className="text-xs font-black text-white truncate max-w-[130px]">{currentUser.name}</p>
-          <p className="text-[9px] font-black uppercase tracking-wider text-yellow-400">{currentUser.role.replace('_', ' ')}</p>
+          <p className="text-[11px] font-black text-slate-800 truncate max-w-[130px]">{currentUser.name}</p>
+          <p className="text-[8px] font-black uppercase tracking-wider text-slate-400">{currentUser.role.replace('_', ' ')}</p>
         </div>
         <ChevronDown size={14} className={`text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
