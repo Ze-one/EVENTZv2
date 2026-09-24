@@ -1235,7 +1235,7 @@ export default function App() {
       </main>
 
       {/* FOOTER BAR */}
-      <footer className="ml-0 lg:ml-[190px] text-slate-400 border-t border-slate-100 py-5 text-[10px] text-center font-mono mt-auto bg-white/35">
+      <footer className="eventz-footer text-slate-400 border-t border-slate-100 py-5 text-[10px] text-center font-mono mt-auto bg-white/35">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row justify-between items-center gap-3">
           <p>© 2026 ETS N-TECH. All rights reserved.</p>
           <p className="text-slate-600">Building IT Systems That Solve Societal Problems</p>
