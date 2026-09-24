@@ -51,6 +51,21 @@ export interface EventDetails {
   showEmail: boolean;
   showCategory: boolean;
   showOrganization: boolean;
+  registrationEnabled?: boolean;
+  registrationMode?: 'public' | 'invitation_only';
+  registrationDeadline?: string | null;
+  eventCapacity?: number | null;
+  waitlistEnabled?: boolean;
+  allowGuests?: boolean;
+  maxGuestsPerRegistration?: number;
+  customRegistrationFields?: Array<{
+    id: string;
+    label: string;
+    type: 'text' | 'textarea' | 'select' | 'checkbox';
+    required?: boolean;
+    placeholder?: string;
+    options?: string[];
+  }>;
   createdAt: string;
   updatedAt: string;
 }
@@ -76,6 +91,9 @@ export interface Participant {
   rsvpUpdatedAt?: string;
   rsvpDeclinedAt?: string;
   passCancelledByRsvp?: boolean;
+  registrationId?: string;
+  isGuest?: boolean;
+  guestOfParticipantId?: string;
 }
 
 export interface ScanLog {
