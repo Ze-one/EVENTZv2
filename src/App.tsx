@@ -691,7 +691,7 @@ export default function App() {
                 currentPage === 'dashboard' ? 'bg-slate-800 text-yellow-400' : 'text-slate-300 hover:bg-slate-800/50'
               }`}
             >
-              Dashboard
+              <BarChart2 size={13} /> <span>Dashboard</span>
             </button>
             
             {currentUser.role === UserRole.ADMIN && (
@@ -703,7 +703,7 @@ export default function App() {
                     currentPage === 'event-settings' ? 'bg-slate-800 text-yellow-400' : 'text-slate-300 hover:bg-slate-800/50'
                   }`}
                 >
-                  Pass Designer
+                  <Calendar size={13} /> <span>Pass Designer</span>
                 </button>
                 <button
                   onClick={() => handlePageChange('upload')}
@@ -712,7 +712,7 @@ export default function App() {
                     currentPage === 'upload' ? 'bg-slate-800 text-yellow-400' : 'text-slate-300 hover:bg-slate-800/50'
                   }`}
                 >
-                  Upload roster
+                  <Users size={13} /> <span>Upload roster</span>
                 </button>
                 <button
                   onClick={() => handlePageChange('registrations')}
@@ -721,7 +721,7 @@ export default function App() {
                     currentPage === 'registrations' ? 'bg-slate-800 text-yellow-400' : 'text-slate-300 hover:bg-slate-800/50'
                   }`}
                 >
-                  <span>Registrations</span>
+                  <CheckSquare size={13} /> <span>Registrations</span>
                   {pendingRegistrations > 0 && (
                     <span className="min-w-5 h-5 px-1.5 rounded-full bg-yellow-400 text-slate-950 text-[9px] font-black flex items-center justify-center">
                       {pendingRegistrations > 99 ? '99+' : pendingRegistrations}
@@ -735,7 +735,7 @@ export default function App() {
                     currentPage === 'participants' ? 'bg-slate-800 text-yellow-400' : 'text-slate-300 hover:bg-slate-800/50'
                   }`}
                 >
-                  Manage Passes
+                  <Users size={13} /> <span>Manage Passes</span>
                 </button>
                 <button
                   onClick={() => handlePageChange('reports')}
@@ -744,7 +744,7 @@ export default function App() {
                     currentPage === 'reports' ? 'bg-slate-800 text-yellow-400' : 'text-slate-300 hover:bg-slate-800/50'
                   }`}
                 >
-                  Scan Audit Logs
+                  <BarChart2 size={13} /> <span>Scan Audit Logs</span>
                 </button>
               </>
             )}
@@ -756,7 +756,7 @@ export default function App() {
                 currentPage === 'scanner' ? 'bg-slate-800 text-yellow-400' : 'text-slate-300 hover:bg-slate-800/50'
               }`}
             >
-              Gates Scanner
+              <Camera size={13} /> <span>Gates Scanner</span>
             </button>
           </nav>
 
