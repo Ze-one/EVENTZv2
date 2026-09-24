@@ -311,9 +311,8 @@ async function getCategories(publicOnly = false) {
       .from('participantCategories')
       .select('*')
       .eq('eventId', 'event-1')
-      .eq('isActive', true)
       .order('name', { ascending: true });
-    if (publicOnly) query = query.eq('isPublic', true);
+    if (publicOnly) query = query.eq('isActive', true).eq('isPublic', true);
     const { data, error } = await query;
     if (error) throw new Error(error.message);
     return data || [];
@@ -325,7 +324,7 @@ async function getCategories(publicOnly = false) {
     { id: 'cat-volunteers', eventId: 'event-1', name: 'Volunteers', slug: 'volunteers', description: 'Event volunteers and support team.', color: '#059669', accessLevel: 'Operations Access', instructions: '', capacity: null, isActive: true, isPublic: true }
   ];
   const source = Array.isArray(db.participantCategories) && db.participantCategories.length ? db.participantCategories : defaults;
-  return source.filter((c: any) => c.isActive !== false && (!publicOnly || c.isPublic !== false));
+  return publicOnly ? source.filter((item: any) => item.isActive !== false && item.isPublic !== false) : source;
 }
 
 
@@ -445,9 +444,9 @@ async function getRegistrationConfig(inviteToken = '') {
   const invitationRequired = event?.registrationMode === 'invitation_only';
   const invitationValid = invitationRequired ? Boolean(invitation) : true;
 
-  const categories = await getCategories(true);
+  const categories = invitation?.categoryId ? await getCategories(false) : await getCategories(true);
   const allowedCategories = invitation?.categoryId
-    ? categories.filter((item: any) => item.id === invitation.categoryId)
+    ? categories.filter((item: any) => item.id === invitation.categoryId && item.isActive !== false)
     : categories;
 
   return {
@@ -614,8 +613,8 @@ async function createRegistration(body: any) {
     throw new Error('A valid invitation link is required to register for this event.');
   }
 
-  const categories = await getCategories(true);
-  const category = categories.find((item: any) => item.id === categoryId);
+  const categories = invitation?.categoryId ? await getCategories(false) : await getCategories(true);
+  const category = categories.find((item: any) => item.id === categoryId && item.isActive !== false && (invitation?.categoryId ? true : item.isPublic !== false));
   if (!category) throw new Error('Select an available registration category.');
   if (invitation?.categoryId && invitation.categoryId !== category.id) {
     throw new Error('This invitation is restricted to a different participant category.');
