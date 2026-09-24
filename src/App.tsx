@@ -17,7 +17,7 @@ import RegistrationManagementView from './components/RegistrationManagementView.
 import RsvpResponseView from './components/RsvpResponseView.tsx';
 import { 
   Users, Calendar, CheckSquare, BarChart2, LogOut, Camera, ShieldAlert, 
-  CheckCircle2, Menu, X, ArrowLeft, Key, UserCheck, ShieldCheck, Eye, EyeOff, UserX, Trash2, RefreshCw
+  CheckCircle2, Menu, X, ArrowLeft, Key, UserCheck, ShieldCheck, Eye, EyeOff, UserX, Trash2, RefreshCw, Search, Sparkles
 } from 'lucide-react';
 
 export default function App() {
@@ -512,6 +512,19 @@ export default function App() {
     }
   };
 
+  const pageMeta: Record<string, { title: string; subtitle: string }> = {
+    dashboard: { title: 'Dashboard', subtitle: 'Live event access intelligence and operations.' },
+    'event-settings': { title: 'Pass Designer', subtitle: 'Configure the event and credential experience.' },
+    upload: { title: 'Upload Roster', subtitle: 'Import participants and organize them by category.' },
+    registrations: { title: 'Registrations', subtitle: 'Review applications and manage RSVP activity.' },
+    participants: { title: 'Manage Passes', subtitle: 'Search, communicate with, and control participant passes.' },
+    reports: { title: 'Analytics & Audit', subtitle: 'Review attendance, email delivery, and gate activity.' },
+    scanner: { title: 'Gate Scanner', subtitle: 'Verify credentials and process participant entry.' },
+    verify: { title: 'Pass Verification', subtitle: 'Review the current credential verification result.' }
+  };
+
+  const activePageMeta = pageMeta[currentPage] || { title: 'EVENTZ', subtitle: 'Event access command center.' };
+
   // Loading Splash Screen
   if (!eventDetails) {
     return (
@@ -660,17 +673,20 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50/50 flex flex-col font-sans text-slate-800">
+    <div className="eventz-shell min-h-screen flex flex-col font-sans text-slate-800">
       
       {/* 1. APP HEADER BAR */}
-      <header className="sticky top-0 bg-slate-900 text-white border-b border-slate-800 z-40 shadow-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
-          <Logo size="md" variant="light" className="cursor-pointer" onClick={() => handlePageChange('dashboard')} />
+      <header className="eventz-sidebar z-40">
+        <div className="eventz-sidebar-inner">
+          <div className="eventz-sidebar-logo">
+            <Logo size="md" className="cursor-pointer" onClick={() => handlePageChange('dashboard')} />
+          </div>
 
           {/* Nav Links Desktop */}
-          <nav className="hidden lg:flex items-center gap-1.5 text-xs font-bold">
+          <nav className="eventz-nav hidden lg:flex text-xs font-bold">
             <button
               onClick={() => handlePageChange('dashboard')}
+              data-active={currentPage === 'dashboard'}
               className={`px-4 py-2 rounded-xl transition-all ${
                 currentPage === 'dashboard' ? 'bg-slate-800 text-yellow-400' : 'text-slate-300 hover:bg-slate-800/50'
               }`}
@@ -682,6 +698,7 @@ export default function App() {
               <>
                 <button
                   onClick={() => handlePageChange('event-settings')}
+                  data-active={currentPage === 'event-settings'}
                   className={`px-4 py-2 rounded-xl transition-all ${
                     currentPage === 'event-settings' ? 'bg-slate-800 text-yellow-400' : 'text-slate-300 hover:bg-slate-800/50'
                   }`}
@@ -690,6 +707,7 @@ export default function App() {
                 </button>
                 <button
                   onClick={() => handlePageChange('upload')}
+                  data-active={currentPage === 'upload'}
                   className={`px-4 py-2 rounded-xl transition-all ${
                     currentPage === 'upload' ? 'bg-slate-800 text-yellow-400' : 'text-slate-300 hover:bg-slate-800/50'
                   }`}
@@ -698,6 +716,7 @@ export default function App() {
                 </button>
                 <button
                   onClick={() => handlePageChange('registrations')}
+                  data-active={currentPage === 'registrations'}
                   className={`px-4 py-2 rounded-xl transition-all flex items-center gap-2 ${
                     currentPage === 'registrations' ? 'bg-slate-800 text-yellow-400' : 'text-slate-300 hover:bg-slate-800/50'
                   }`}
@@ -711,6 +730,7 @@ export default function App() {
                 </button>
                 <button
                   onClick={() => handlePageChange('participants')}
+                  data-active={currentPage === 'participants'}
                   className={`px-4 py-2 rounded-xl transition-all ${
                     currentPage === 'participants' ? 'bg-slate-800 text-yellow-400' : 'text-slate-300 hover:bg-slate-800/50'
                   }`}
@@ -719,6 +739,7 @@ export default function App() {
                 </button>
                 <button
                   onClick={() => handlePageChange('reports')}
+                  data-active={currentPage === 'reports'}
                   className={`px-4 py-2 rounded-xl transition-all ${
                     currentPage === 'reports' ? 'bg-slate-800 text-yellow-400' : 'text-slate-300 hover:bg-slate-800/50'
                   }`}
@@ -730,6 +751,7 @@ export default function App() {
 
             <button
               onClick={() => handlePageChange('scanner')}
+              data-active={currentPage === 'scanner'}
               className={`px-4 py-2 rounded-xl transition-all ${
                 currentPage === 'scanner' ? 'bg-slate-800 text-yellow-400' : 'text-slate-300 hover:bg-slate-800/50'
               }`}
@@ -739,7 +761,7 @@ export default function App() {
           </nav>
 
           {/* User Profile & Logout Desktop */}
-          <div className="hidden lg:flex items-center gap-4 border-l border-slate-800 pl-4 text-xs">
+          <div className="eventz-sidebar-account hidden lg:flex items-center gap-3 text-xs">
             <div className="space-y-0.5 text-right">
               <p className="font-extrabold text-white">{currentUser.name}</p>
               <p className="text-[10px] text-yellow-500 font-mono uppercase tracking-wider">{currentUser.role.replace('_', ' ')}</p>
@@ -866,7 +888,36 @@ export default function App() {
       </header>
 
       {/* 2. MAIN APPLICATION CONTENT PORTAL */}
-      <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 py-6 pb-20">
+      <main className="eventz-main flex-1 w-full pb-20">
+        <div className="eventz-topbar">
+          <div className="eventz-topbar-copy">
+            <div className="flex items-center gap-2">
+              <h1>{activePageMeta.title}</h1>
+              <span className="eventz-chip bg-emerald-50 text-emerald-700 border-emerald-100">LIVE</span>
+            </div>
+            <p>{activePageMeta.subtitle}</p>
+          </div>
+
+          <div className="flex items-center gap-3 pr-1">
+            {currentUser.role === UserRole.ADMIN && (
+              <button
+                type="button"
+                onClick={() => handlePageChange('participants')}
+                className="eventz-search-pill text-left"
+                title="Search participants and passes"
+              >
+                <Search size={13} />
+                <span>Search participants, passes...</span>
+              </button>
+            )}
+            <div className="hidden sm:flex items-center gap-2 rounded-full bg-white/80 border border-slate-100 px-3 py-2 text-[10px] font-bold text-slate-500 shadow-sm">
+              <Sparkles size={12} className="text-yellow-500" />
+              <span>{eventDetails.eventDate || 'Current event'}</span>
+            </div>
+          </div>
+        </div>
+
+        <div key={currentPage} className="eventz-page-transition">
 
         {/* TAB PATH: ACTIVE DELEGATE QR VERIFICATION SCREEN */}
         {currentPage === 'verify' && (
@@ -1169,10 +1220,11 @@ export default function App() {
           </div>
         )}
 
+        </div>
       </main>
 
       {/* FOOTER BAR */}
-      <footer className="bg-slate-950 text-slate-500 border-t border-slate-900 py-6 text-xs text-center font-mono mt-auto">
+      <footer className="ml-0 lg:ml-[190px] text-slate-400 border-t border-slate-100 py-5 text-[10px] text-center font-mono mt-auto bg-white/35">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row justify-between items-center gap-3">
           <p>© 2026 ETS N-TECH. All rights reserved.</p>
           <p className="text-slate-600">Building IT Systems That Solve Societal Problems</p>
