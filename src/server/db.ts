@@ -36,6 +36,8 @@ interface DatabaseSchema {
   participants: Participant[];
   scanLogs: ScanLog[];
   emailLogs?: EmailLog[];
+  passHistory?: any[];
+  securityAlerts?: any[];
 }
 
 function hashPassword(password: string): string {
@@ -130,7 +132,9 @@ const defaultDb: DatabaseSchema = {
     }
   ],
   scanLogs: [],
-  emailLogs: []
+  emailLogs: [],
+  passHistory: [],
+  securityAlerts: []
 };
 
 class DB {
@@ -631,6 +635,128 @@ class DB {
 
     this.data.scanLogs = [];
     this.saveLocal();
+  }
+
+
+  // --- Pass lifecycle & security methods ---
+  async getPassHistory(participantId: string): Promise<any[]> {
+    if (this.useSupabase && this.supabase) {
+      const { data, error } = await this.supabase
+        .from('passHistory')
+        .select('*')
+        .eq('participantId', participantId)
+        .order('createdAt', { ascending: false });
+      if (!error && data) return data;
+      console.error('[DB] Supabase getPassHistory error, falling back to local:', error?.message);
+    }
+    return (this.data.passHistory || [])
+      .filter((item: any) => item.participantId === participantId)
+      .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  async addPassHistory(entry: any): Promise<any> {
+    const record = {
+      id: entry.id || 'hist-' + Math.random().toString(36).substring(2, 10),
+      eventId: entry.eventId || 'event-1',
+      participantId: entry.participantId,
+      action: entry.action,
+      oldPassId: entry.oldPassId || null,
+      newPassId: entry.newPassId || null,
+      passVersion: Number(entry.passVersion || 1),
+      performedBy: entry.performedBy || 'System',
+      reason: entry.reason || null,
+      metadata: entry.metadata || {},
+      createdAt: entry.createdAt || new Date().toISOString()
+    };
+
+    if (this.useSupabase && this.supabase) {
+      const { data, error } = await this.supabase.from('passHistory').insert(record).select().single();
+      if (!error && data) return data;
+      console.error('[DB] Supabase addPassHistory error, falling back to local:', error?.message);
+    }
+
+    if (!this.data.passHistory) this.data.passHistory = [];
+    this.data.passHistory.push(record);
+    this.saveLocal();
+    return record;
+  }
+
+  async getSecurityAlerts(): Promise<any[]> {
+    if (this.useSupabase && this.supabase) {
+      const { data, error } = await this.supabase
+        .from('passSecurityAlerts')
+        .select('*')
+        .eq('eventId', 'event-1')
+        .order('createdAt', { ascending: false });
+      if (!error && data) return data;
+      console.error('[DB] Supabase getSecurityAlerts error, falling back to local:', error?.message);
+    }
+    return [...(this.data.securityAlerts || [])]
+      .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  async addSecurityAlert(entry: any): Promise<any> {
+    const record = {
+      id: entry.id || 'sec-' + Math.random().toString(36).substring(2, 10),
+      eventId: entry.eventId || 'event-1',
+      participantId: entry.participantId || null,
+      passId: entry.passId,
+      type: entry.type,
+      severity: entry.severity || 'medium',
+      message: entry.message,
+      gates: entry.gates || [],
+      scanLogIds: entry.scanLogIds || [],
+      resolved: Boolean(entry.resolved),
+      resolvedAt: entry.resolvedAt || null,
+      resolvedBy: entry.resolvedBy || null,
+      createdAt: entry.createdAt || new Date().toISOString()
+    };
+
+    if (this.useSupabase && this.supabase) {
+      const { data, error } = await this.supabase.from('passSecurityAlerts').insert(record).select().single();
+      if (!error && data) return data;
+      console.error('[DB] Supabase addSecurityAlert error, falling back to local:', error?.message);
+    }
+
+    if (!this.data.securityAlerts) this.data.securityAlerts = [];
+    this.data.securityAlerts.push(record);
+    this.saveLocal();
+    return record;
+  }
+
+  async resolveSecurityAlert(id: string, resolvedBy: string): Promise<any | undefined> {
+    const resolvedAt = new Date().toISOString();
+    if (this.useSupabase && this.supabase) {
+      const { data, error } = await this.supabase
+        .from('passSecurityAlerts')
+        .update({ resolved: true, resolvedAt, resolvedBy })
+        .eq('id', id)
+        .select()
+        .maybeSingle();
+      if (!error && data) return data;
+      console.error('[DB] Supabase resolveSecurityAlert error, falling back to local:', error?.message);
+    }
+
+    if (!this.data.securityAlerts) this.data.securityAlerts = [];
+    const index = this.data.securityAlerts.findIndex((item: any) => item.id === id);
+    if (index === -1) return undefined;
+    this.data.securityAlerts[index] = { ...this.data.securityAlerts[index], resolved: true, resolvedAt, resolvedBy };
+    this.saveLocal();
+    return this.data.securityAlerts[index];
+  }
+
+  async getScanLogBySyncId(syncId: string): Promise<ScanLog | undefined> {
+    if (!syncId) return undefined;
+    if (this.useSupabase && this.supabase) {
+      const { data, error } = await this.supabase
+        .from('scanLogs')
+        .select('*')
+        .eq('syncId', syncId)
+        .maybeSingle();
+      if (!error && data) return data as ScanLog;
+      if (error) console.error('[DB] Supabase getScanLogBySyncId error:', error.message);
+    }
+    return (this.data.scanLogs || []).find((item: any) => item.syncId === syncId);
   }
 
   // --- Email Logs Methods ---
