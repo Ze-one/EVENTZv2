@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import sgMail from '@sendgrid/mail';
 import nodemailer from 'nodemailer';
 import { db } from './db.js';
@@ -27,7 +28,7 @@ function escapeHtml(value: unknown): string {
     .replace(/'/g, '&#039;');
 }
 
-function getAppOrigin(req: any): string {
+export function getAppOrigin(req: any): string {
   const configured = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL;
   if (configured) return configured.startsWith('http') ? configured.replace(/\/$/, '') : `https://${configured.replace(/\/$/, '')}`;
   const protocol = req.headers['x-forwarded-proto'] || 'https';
@@ -57,6 +58,23 @@ export function getEmailProviderStatus() {
     smtp: Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS),
     sender: Boolean(process.env.SENDGRID_FROM || process.env.SMTP_FROM || process.env.MAIL_FROM || process.env.SMTP_USER)
   };
+}
+
+export async function ensureParticipantRsvpToken(participant: any) {
+  if (participant?.rsvpToken) return participant;
+
+  const rsvpToken = crypto.randomBytes(24).toString('hex');
+  const updated = await db.updateParticipant(participant.id, {
+    rsvpToken,
+    rsvpStatus: participant?.rsvpStatus || 'pending',
+    passCancelledByRsvp: Boolean(participant?.passCancelledByRsvp)
+  } as any);
+
+  return updated || { ...participant, rsvpToken, rsvpStatus: participant?.rsvpStatus || 'pending' };
+}
+
+export function buildRsvpUrl(req: any, token: string) {
+  return `${getAppOrigin(req)}/rsvp/${encodeURIComponent(token)}`;
 }
 
 function getDesign(event: any) {
