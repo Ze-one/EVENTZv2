@@ -45,8 +45,8 @@ function parseSender(value: string, fallbackName: string) {
 
 function getSender(event: any) {
   const organizerName = event?.organizerName || 'ETS N-TECH';
-  const rawSender = process.env.SENDGRID_FROM || process.env.SMTP_FROM || process.env.MAIL_FROM || process.env.SMTP_USER || '';
-  if (!rawSender) throw new Error('No sender configured. Set SENDGRID_FROM or SMTP_FROM to a verified sender email.');
+  const rawSender = process.env.BREVO_FROM || process.env.BREVO_SENDER_EMAIL || process.env.SMTP_FROM || process.env.MAIL_FROM || process.env.SMTP_USER || process.env.SENDGRID_FROM || '';
+  if (!rawSender) throw new Error('No sender configured. Set BREVO_FROM to a sender email verified in Brevo.');
   const sender = parseSender(rawSender, organizerName);
   if (!isValidEmail(sender.email)) throw new Error(`Invalid sender email configured: ${sender.email}`);
   return sender;
@@ -54,9 +54,10 @@ function getSender(event: any) {
 
 export function getEmailProviderStatus() {
   return {
-    sendGrid: Boolean(process.env.SENDGRID_API_KEY),
+    brevo: Boolean(process.env.BREVO_API_KEY),
     smtp: Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS),
-    sender: Boolean(process.env.SENDGRID_FROM || process.env.SMTP_FROM || process.env.MAIL_FROM || process.env.SMTP_USER)
+    sendGridLegacy: Boolean(process.env.SENDGRID_API_KEY && process.env.EMAIL_ALLOW_SENDGRID_FALLBACK === 'true'),
+    sender: Boolean(process.env.BREVO_FROM || process.env.BREVO_SENDER_EMAIL || process.env.SMTP_FROM || process.env.MAIL_FROM || process.env.SMTP_USER || process.env.SENDGRID_FROM)
   };
 }
 
@@ -162,21 +163,59 @@ export async function sendParticipantPassEmail(req: any, participant: any, event
   const html = buildEmailHtml(participant, event, customMessage, qrImageUrl, options);
 
   try {
-    if (process.env.SENDGRID_API_KEY) {
-      sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-      const [result] = await sgMail.send({ to: recipient, from: sender, replyTo: sender, subject, html } as any);
-      const sendGridResult = result as any;
-      await db.updateEmailLogStatus(logId, 'Delivered');
-      return { provider: 'sendgrid', statusCode: sendGridResult?.statusCode || 202, messageId: sendGridResult?.headers?.['x-message-id'] || sendGridResult?.id || null };
+    if (process.env.BREVO_API_KEY) {
+      const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'api-key': process.env.BREVO_API_KEY,
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          sender: {
+            email: sender.email,
+            name: process.env.BREVO_FROM_NAME || sender.name
+          },
+          to: [{ email: recipient, name: participant?.fullName || recipient }],
+          replyTo: sender,
+          subject,
+          htmlContent: html,
+          tags: ['EVENTZ', options.approval ? 'registration-approval' : 'pass-email']
+        })
+      });
+
+      const data: any = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = data?.message || data?.code || `Brevo API request failed with HTTP ${response.status}`;
+        throw new Error(`Brevo: ${detail}`);
+      }
+
+      await db.updateEmailLogStatus(logId, 'Queued');
+      return {
+        provider: 'brevo',
+        statusCode: response.status,
+        messageId: data?.messageId || null,
+        accepted: true
+      };
     }
+
     if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
       const port = parseInt(process.env.SMTP_PORT || '587', 10);
       const transporter = nodemailer.createTransport({ host: process.env.SMTP_HOST, port, secure: port === 465, auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } });
       const result = await transporter.sendMail({ from: `"${sender.name}" <${sender.email}>`, replyTo: `"${sender.name}" <${sender.email}>`, to: recipient, subject, html });
-      await db.updateEmailLogStatus(logId, 'Delivered');
+      await db.updateEmailLogStatus(logId, 'Queued');
       return { provider: 'smtp', messageId: result.messageId, accepted: result.accepted, rejected: result.rejected };
     }
-    throw new Error('No real email provider configured. Add SENDGRID_API_KEY + SENDGRID_FROM, or SMTP_HOST + SMTP_USER + SMTP_PASS + SMTP_FROM in Vercel.');
+
+    if (process.env.SENDGRID_API_KEY && process.env.EMAIL_ALLOW_SENDGRID_FALLBACK === 'true') {
+      sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+      const [result] = await sgMail.send({ to: recipient, from: sender, replyTo: sender, subject, html } as any);
+      const sendGridResult = result as any;
+      await db.updateEmailLogStatus(logId, 'Queued');
+      return { provider: 'sendgrid-legacy', statusCode: sendGridResult?.statusCode || 202, messageId: sendGridResult?.headers?.['x-message-id'] || sendGridResult?.id || null };
+    }
+
+    throw new Error('Brevo email is not configured. Add BREVO_API_KEY and BREVO_FROM in Vercel. BREVO_FROM must be a verified sender in Brevo.');
   } catch (error: any) {
     const providerBody = error?.response?.body ? JSON.stringify(error.response.body) : '';
     const message = [error?.message || 'Email delivery failed', providerBody].filter(Boolean).join(' | ');
