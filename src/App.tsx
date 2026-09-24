@@ -18,7 +18,7 @@ import RsvpResponseView from './components/RsvpResponseView.tsx';
 import AppHeader from './components/AppHeader.tsx';
 import { 
   Users, Calendar, CheckSquare, BarChart2, LogOut, Camera, ShieldAlert, 
-  CheckCircle2, Menu, X, ArrowLeft, Key, UserCheck, ShieldCheck, Eye, EyeOff, UserX, Trash2, RefreshCw, Search, Sparkles
+  CheckCircle2, Menu, X, ArrowLeft, Key, UserCheck, ShieldCheck, Eye, EyeOff, UserX, Trash2, RefreshCw, Sparkles
 } from 'lucide-react';
 
 export default function App() {
