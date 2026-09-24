@@ -1208,7 +1208,7 @@ export default async function handler(req: any, res: any) {
     res.status(405).json({ error: 'Method not allowed' });
   } catch (error: any) {
     const message = error?.message || 'Registration request failed.';
-    const status = /already exists|already approved|valid email|full name|Select an available/.test(message) ? 400 : 500;
+    const status = /already exists|already approved|valid email|full name|Select an available|registration is currently closed|deadline|valid invitation|restricted to|capacity|guest|is required|Invalid value/.test(message) ? 400 : 500;
     res.status(status).json({ error: message });
   }
 }
