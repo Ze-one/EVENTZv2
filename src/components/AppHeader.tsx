@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Mail,
+  Menu,
   Mic,
   MicOff,
   Moon,
@@ -19,19 +20,30 @@ interface Props {
   participants: Participant[];
   onNavigate: (page: string) => void;
   onMessage?: (message: string, type?: 'success' | 'error' | 'info') => void;
+  menuOpen?: boolean;
+  onMenuToggle?: () => void;
 }
 
 type ThemeMode = 'light' | 'dark';
 
-export default function AppHeader({ currentUser, participants, onNavigate, onMessage }: Props) {
+export default function AppHeader({
+  currentUser,
+  participants,
+  onNavigate,
+  onMessage,
+  menuOpen = false,
+  onMenuToggle
+}: Props) {
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [listening, setListening] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => {
     const stored = localStorage.getItem('eventz_theme');
     return stored === 'dark' ? 'dark' : 'light';
   });
   const searchRef = useRef<HTMLDivElement>(null);
+  const mobileSearchInputRef = useRef<HTMLInputElement>(null);
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -63,9 +75,20 @@ export default function AppHeader({ currentUser, participants, onNavigate, onMes
     return () => window.removeEventListener('mousedown', close);
   }, []);
 
+  useEffect(() => {
+    if (!mobileSearchOpen) return;
+    const timer = window.setTimeout(() => mobileSearchInputRef.current?.focus(), 80);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.clearTimeout(timer);
+      document.body.style.overflow = '';
+    };
+  }, [mobileSearchOpen]);
+
   const openParticipant = (participant: Participant) => {
     sessionStorage.setItem('eventz_header_search', participant.passId || participant.fullName);
     setSearchOpen(false);
+    setMobileSearchOpen(false);
     setQuery('');
     onNavigate('participants');
   };
@@ -78,6 +101,7 @@ export default function AppHeader({ currentUser, participants, onNavigate, onMes
     if (query.trim()) {
       sessionStorage.setItem('eventz_header_search', query.trim());
       setSearchOpen(false);
+      setMobileSearchOpen(false);
       onNavigate('participants');
     }
   };
@@ -104,6 +128,7 @@ export default function AppHeader({ currentUser, participants, onNavigate, onMes
       if (transcript) {
         setQuery(transcript);
         setSearchOpen(true);
+        setMobileSearchOpen(true);
       }
     };
     recognition.start();
@@ -114,127 +139,200 @@ export default function AppHeader({ currentUser, participants, onNavigate, onMes
     onNavigate('reports');
   };
 
-  return (
-    <header className="eventz-global-header">
-      <button
-        type="button"
-        className="eventz-header-brand"
-        onClick={() => onNavigate('dashboard')}
-        aria-label="Open EVENTZ dashboard"
-      >
-        <Logo size="sm" variant="dark" />
-      </button>
-
-      <div ref={searchRef} className="eventz-header-search-wrap">
-        <div className="eventz-header-search">
+  const SearchResults = ({ mobile = false }: { mobile?: boolean }) => (
+    <div className={mobile ? 'eventz-mobile-search-results' : 'eventz-header-search-results'}>
+      {results.length > 0 ? (
+        results.map((participant) => (
+          <button
+            key={participant.id}
+            type="button"
+            onClick={() => openParticipant(participant)}
+            className="eventz-header-result"
+          >
+            <span className="eventz-header-result-avatar">
+              {participant.fullName
+                .split(' ')
+                .map((part) => part[0])
+                .join('')
+                .slice(0, 2)
+                .toUpperCase()}
+            </span>
+            <span className="min-w-0">
+              <strong>{participant.fullName}</strong>
+              <small>{participant.passId} · {participant.category || 'Attendee'}</small>
+            </span>
+          </button>
+        ))
+      ) : (
+        <button type="button" onClick={submitSearch} className="eventz-header-result eventz-header-result-empty">
           <Search size={14} />
-          <input
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setSearchOpen(true);
-            }}
-            onFocus={() => setSearchOpen(true)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') submitSearch();
-              if (event.key === 'Escape') {
-                setSearchOpen(false);
-                setQuery('');
-              }
-            }}
-            placeholder="Search"
-            aria-label="Search participants and passes"
-          />
-          {query && (
-            <button type="button" onClick={() => setQuery('')} className="eventz-header-search-clear" title="Clear search">
-              <X size={12} />
-            </button>
-          )}
-        </div>
+          <span>Search Manage Passes for “{query.trim()}”</span>
+        </button>
+      )}
+    </div>
+  );
 
+  return (
+    <>
+      <header className="eventz-global-header">
         <button
           type="button"
-          onClick={startVoiceSearch}
-          className={`eventz-header-circle ${listening ? 'eventz-header-circle-active' : ''}`}
-          title={listening ? 'Listening…' : 'Voice search'}
-          aria-label="Voice search"
+          className="eventz-header-brand"
+          onClick={() => onNavigate('dashboard')}
+          aria-label="Open EVENTZ dashboard"
         >
-          {listening ? <MicOff size={14} /> : <Mic size={14} />}
+          <Logo size="sm" variant="dark" />
         </button>
 
-        {searchOpen && query.trim() && (
-          <div className="eventz-header-search-results">
-            {results.length > 0 ? (
-              results.map((participant) => (
-                <button
-                  key={participant.id}
-                  type="button"
-                  onClick={() => openParticipant(participant)}
-                  className="eventz-header-result"
-                >
-                  <span className="eventz-header-result-avatar">
-                    {participant.fullName
-                      .split(' ')
-                      .map((part) => part[0])
-                      .join('')
-                      .slice(0, 2)
-                      .toUpperCase()}
-                  </span>
-                  <span className="min-w-0">
-                    <strong>{participant.fullName}</strong>
-                    <small>{participant.passId} · {participant.category || 'Attendee'}</small>
-                  </span>
-                </button>
-              ))
-            ) : (
-              <button type="button" onClick={submitSearch} className="eventz-header-result eventz-header-result-empty">
-                <Search size={14} />
-                <span>Search Manage Passes for “{query.trim()}”</span>
+        <div ref={searchRef} className="eventz-header-search-wrap">
+          <div className="eventz-header-search">
+            <Search size={14} />
+            <input
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setSearchOpen(true);
+              }}
+              onFocus={() => setSearchOpen(true)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') submitSearch();
+                if (event.key === 'Escape') {
+                  setSearchOpen(false);
+                  setQuery('');
+                }
+              }}
+              placeholder="Search participants or passes"
+              aria-label="Search participants and passes"
+            />
+            {query && (
+              <button type="button" onClick={() => setQuery('')} className="eventz-header-search-clear" title="Clear search">
+                <X size={12} />
               </button>
             )}
           </div>
-        )}
-      </div>
 
-      <div className="eventz-header-actions">
-        {currentUser?.role === UserRole.ADMIN && (
           <button
             type="button"
-            onClick={() => onNavigate('event-settings')}
-            className="eventz-header-circle eventz-header-circle-accent eventz-header-settings"
-            title="Event and pass settings"
-            aria-label="Event settings"
+            onClick={startVoiceSearch}
+            className={`eventz-header-circle ${listening ? 'eventz-header-circle-active' : ''}`}
+            title={listening ? 'Listening…' : 'Voice search'}
+            aria-label="Voice search"
           >
-            <Settings2 size={14} />
+            {listening ? <MicOff size={14} /> : <Mic size={14} />}
           </button>
-        )}
 
-        <button
-          type="button"
-          onClick={() => setTheme((value) => value === 'light' ? 'dark' : 'light')}
-          className="eventz-header-circle eventz-header-theme"
-          title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
-          aria-label="Toggle appearance"
-        >
-          {theme === 'light' ? <Moon size={14} /> : <Sun size={14} />}
-        </button>
+          {searchOpen && query.trim() && <SearchResults />}
+        </div>
 
-        <NotificationCenter />
-
-        {currentUser?.role === UserRole.ADMIN && (
+        <div className="eventz-header-actions">
           <button
             type="button"
-            onClick={openEmailActivity}
-            className="eventz-header-circle eventz-header-mail"
-            title="Email delivery activity"
-            aria-label="Email activity"
+            onClick={() => setMobileSearchOpen(true)}
+            className="eventz-header-circle eventz-mobile-search-trigger"
+            title="Search"
+            aria-label="Open search"
           >
-            <Mail size={14} />
+            <Search size={14} />
           </button>
-        )}
 
-        <HeaderAccountControl />
-      </div>
-    </header>
+          {currentUser?.role === UserRole.ADMIN && (
+            <button
+              type="button"
+              onClick={() => onNavigate('event-settings')}
+              className="eventz-header-circle eventz-header-circle-accent eventz-header-settings"
+              title="Event and pass settings"
+              aria-label="Event settings"
+            >
+              <Settings2 size={14} />
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setTheme((value) => value === 'light' ? 'dark' : 'light')}
+            className="eventz-header-circle eventz-header-theme"
+            title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+            aria-label="Toggle appearance"
+          >
+            {theme === 'light' ? <Moon size={14} /> : <Sun size={14} />}
+          </button>
+
+          <NotificationCenter />
+
+          {currentUser?.role === UserRole.ADMIN && (
+            <button
+              type="button"
+              onClick={openEmailActivity}
+              className="eventz-header-circle eventz-header-mail"
+              title="Email delivery activity"
+              aria-label="Email activity"
+            >
+              <Mail size={14} />
+            </button>
+          )}
+
+          <HeaderAccountControl />
+
+          <button
+            type="button"
+            onClick={onMenuToggle}
+            className={`eventz-header-circle eventz-mobile-menu-trigger ${menuOpen ? 'eventz-header-circle-active' : ''}`}
+            title={menuOpen ? 'Close menu' : 'Open menu'}
+            aria-label={menuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+            aria-expanded={menuOpen}
+          >
+            {menuOpen ? <X size={16} /> : <Menu size={16} />}
+          </button>
+        </div>
+      </header>
+
+      {mobileSearchOpen && (
+        <div className="eventz-mobile-search-overlay">
+          <button
+            type="button"
+            className="eventz-mobile-search-backdrop"
+            onClick={() => setMobileSearchOpen(false)}
+            aria-label="Close search"
+          />
+          <div className="eventz-mobile-search-sheet">
+            <div className="flex items-center gap-2">
+              <div className="eventz-mobile-search-input">
+                <Search size={16} />
+                <input
+                  ref={mobileSearchInputRef}
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') submitSearch();
+                    if (event.key === 'Escape') setMobileSearchOpen(false);
+                  }}
+                  placeholder="Search participant, pass ID, email…"
+                />
+                {query && (
+                  <button type="button" onClick={() => setQuery('')} aria-label="Clear search">
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setMobileSearchOpen(false)}
+                className="eventz-mobile-search-close"
+              >
+                Done
+              </button>
+            </div>
+
+            {query.trim() ? (
+              <SearchResults mobile />
+            ) : (
+              <div className="eventz-mobile-search-empty">
+                Search participants, pass IDs, email addresses, organizations, or categories.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
