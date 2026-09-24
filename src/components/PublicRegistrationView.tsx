@@ -93,8 +93,9 @@ export default function PublicRegistrationView({ event, onBack }: Props) {
             <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
               <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Registration reference</span>
               <p className="font-mono font-black text-slate-900 mt-1">{successRef}</p>
+              <p className="text-[10px] font-bold text-amber-700 mt-2">Tracking reference only — this is not an entry pass.</p>
             </div>
-            <p className="text-xs text-slate-500">Keep this reference. The event team can contact you using the email address or phone number you submitted.</p>
+            <p className="text-xs text-slate-500">Keep this reference so the event team can locate your submission before a participant pass exists. Your approved pass will have a separate Pass ID.</p>
             <button onClick={() => window.location.reload()} className="w-full py-3 rounded-xl bg-slate-900 text-white text-xs font-black hover:bg-slate-800">
               Submit another registration
             </button>
