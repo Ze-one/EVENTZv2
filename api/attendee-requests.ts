@@ -328,6 +328,232 @@ async function getCategories(publicOnly = false) {
   return source.filter((c: any) => c.isActive !== false && (!publicOnly || c.isPublic !== false));
 }
 
+
+async function getEventRegistrationSettings() {
+  const supabase = getSupabase();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('events')
+      .select('*')
+      .eq('id', 'event-1')
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return data || {};
+  }
+  const local = readLocalDb();
+  return local.events?.find((item: any) => item.id === 'event-1') || local.events?.[0] || {};
+}
+
+async function countActiveParticipants(categoryName?: string) {
+  const supabase = getSupabase();
+  if (supabase) {
+    let query = supabase
+      .from('participants')
+      .select('*', { count: 'exact', head: true })
+      .eq('eventId', 'event-1')
+      .neq('status', 'Cancelled');
+    if (categoryName) query = query.eq('category', categoryName);
+    const { count, error } = await query;
+    if (error) throw new Error(error.message);
+    return count || 0;
+  }
+
+  const local = readLocalDb();
+  return (local.participants || []).filter((item: any) =>
+    item.eventId === 'event-1' &&
+    item.status !== 'Cancelled' &&
+    (!categoryName || item.category === categoryName)
+  ).length;
+}
+
+async function getInvitationByToken(token: string) {
+  if (!token) return null;
+  const supabase = getSupabase();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('registrationInvitations')
+      .select('*')
+      .eq('eventId', 'event-1')
+      .eq('token', token)
+      .eq('isActive', true)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) return null;
+    if (data.expiresAt && new Date(data.expiresAt).getTime() < Date.now()) return null;
+    if ((data.usesCount || 0) >= (data.maxUses || 1)) return null;
+    return data;
+  }
+
+  const local = readLocalDb();
+  const invitation = (local.registrationInvitations || []).find((item: any) =>
+    item.eventId === 'event-1' &&
+    item.token === token &&
+    item.isActive !== false
+  );
+  if (!invitation) return null;
+  if (invitation.expiresAt && new Date(invitation.expiresAt).getTime() < Date.now()) return null;
+  if ((invitation.usesCount || 0) >= (invitation.maxUses || 1)) return null;
+  return invitation;
+}
+
+function normalizeCustomAnswers(fields: any[], answers: any) {
+  const output: Record<string, any> = {};
+  for (const field of Array.isArray(fields) ? fields : []) {
+    const id = String(field?.id || '').trim();
+    if (!id) continue;
+    const raw = answers?.[id];
+    const value = field?.type === 'checkbox' ? Boolean(raw) : String(raw ?? '').trim();
+    if (field?.required && (field?.type === 'checkbox' ? value !== true : !value)) {
+      throw new Error(`${field.label || 'A required field'} is required.`);
+    }
+    if (field?.type === 'select' && value && Array.isArray(field.options) && !field.options.includes(value)) {
+      throw new Error(`Invalid value for ${field.label || 'custom field'}.`);
+    }
+    output[id] = value;
+  }
+  return output;
+}
+
+async function getRegistrationAvailability(category: any, requestedSlots: number) {
+  const event = await getEventRegistrationSettings();
+  const activeEventParticipants = await countActiveParticipants();
+  const activeCategoryParticipants = category?.name ? await countActiveParticipants(category.name) : 0;
+
+  const eventRemaining = event?.eventCapacity == null
+    ? null
+    : Math.max(0, Number(event.eventCapacity) - activeEventParticipants);
+
+  const categoryRemaining = category?.capacity == null
+    ? null
+    : Math.max(0, Number(category.capacity) - activeCategoryParticipants);
+
+  const eventHasSpace = eventRemaining == null || eventRemaining >= requestedSlots;
+  const categoryHasSpace = categoryRemaining == null || categoryRemaining >= requestedSlots;
+
+  return {
+    event,
+    eventRemaining,
+    categoryRemaining,
+    hasSpace: eventHasSpace && categoryHasSpace
+  };
+}
+
+async function getRegistrationConfig(inviteToken = '') {
+  const event = await getEventRegistrationSettings();
+  const invitation = inviteToken ? await getInvitationByToken(inviteToken) : null;
+  const deadlinePassed = Boolean(event?.registrationDeadline && new Date(event.registrationDeadline).getTime() < Date.now());
+  const invitationRequired = event?.registrationMode === 'invitation_only';
+  const invitationValid = invitationRequired ? Boolean(invitation) : true;
+
+  const categories = await getCategories(true);
+  const allowedCategories = invitation?.categoryId
+    ? categories.filter((item: any) => item.id === invitation.categoryId)
+    : categories;
+
+  return {
+    registrationEnabled: event?.registrationEnabled !== false,
+    registrationMode: event?.registrationMode || 'public',
+    registrationDeadline: event?.registrationDeadline || null,
+    eventCapacity: event?.eventCapacity ?? null,
+    waitlistEnabled: event?.waitlistEnabled !== false,
+    allowGuests: Boolean(event?.allowGuests),
+    maxGuestsPerRegistration: Number(event?.maxGuestsPerRegistration ?? 1),
+    customRegistrationFields: Array.isArray(event?.customRegistrationFields) ? event.customRegistrationFields : [],
+    deadlinePassed,
+    invitationRequired,
+    invitationValid,
+    invitationLabel: invitation?.label || null,
+    invitationCategoryId: invitation?.categoryId || null,
+    categories: allowedCategories
+  };
+}
+
+async function getInvitations() {
+  const supabase = getSupabase();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('registrationInvitations')
+      .select('*')
+      .eq('eventId', 'event-1')
+      .order('createdAt', { ascending: false });
+    if (error) throw new Error(error.message);
+    return data || [];
+  }
+  const local = readLocalDb();
+  return [...(local.registrationInvitations || [])].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
+async function createInvitation(body: any) {
+  const token = crypto.randomBytes(12).toString('hex');
+  const record = {
+    id: `inv-${Math.random().toString(36).slice(2, 10)}`,
+    eventId: 'event-1',
+    token,
+    label: String(body.label || 'Private invitation').trim().slice(0, 120),
+    categoryId: body.categoryId || null,
+    maxUses: Math.max(1, Math.min(500, Number(body.maxUses || 1))),
+    usesCount: 0,
+    expiresAt: body.expiresAt || null,
+    isActive: true,
+    createdAt: new Date().toISOString()
+  };
+
+  const supabase = getSupabase();
+  if (supabase) {
+    const { data, error } = await supabase.from('registrationInvitations').insert(record).select().single();
+    if (error) throw new Error(error.message);
+    return data;
+  }
+
+  const local = readLocalDb();
+  if (!local.registrationInvitations) local.registrationInvitations = [];
+  local.registrationInvitations.push(record);
+  writeLocalDb(local);
+  return record;
+}
+
+async function deleteInvitation(id: string) {
+  const supabase = getSupabase();
+  if (supabase) {
+    const { error } = await supabase.from('registrationInvitations').delete().eq('id', id);
+    if (error) throw new Error(error.message);
+    return true;
+  }
+  const local = readLocalDb();
+  const before = (local.registrationInvitations || []).length;
+  local.registrationInvitations = (local.registrationInvitations || []).filter((item: any) => item.id !== id);
+  writeLocalDb(local);
+  return local.registrationInvitations.length < before;
+}
+
+async function updateCategoryControl(body: any) {
+  const id = String(body.id || '');
+  if (!id) throw new Error('Category id is required.');
+  const updates: any = {};
+  if ('capacity' in body) updates.capacity = body.capacity === '' || body.capacity == null ? null : Math.max(0, Number(body.capacity));
+  if ('isPublic' in body) updates.isPublic = Boolean(body.isPublic);
+  if ('isActive' in body) updates.isActive = Boolean(body.isActive);
+
+  const supabase = getSupabase();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('participantCategories')
+      .update({ ...updates, updatedAt: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return data;
+  }
+
+  const local = readLocalDb();
+  const index = (local.participantCategories || []).findIndex((item: any) => item.id === id);
+  if (index === -1) throw new Error('Category not found.');
+  local.participantCategories[index] = { ...local.participantCategories[index], ...updates, updatedAt: new Date().toISOString() };
+  writeLocalDb(local);
+  return local.participantCategories[index];
+}
+
 async function getRegistrations() {
   const supabase = getSupabase();
   if (supabase) {
