@@ -8,6 +8,7 @@ import { EventDetails, Participant, PassStatus } from '../types.js';
 import EventPassCard from './EventPassCard.tsx';
 import RegistrationControlsPanel from './RegistrationControlsPanel.tsx';
 import PassTemplateSelector from './PassTemplateSelector.tsx';
+import DashboardVisualStudio from './DashboardVisualStudio.tsx';
 import { DEFAULT_PASS_DESIGN, PassDesign, getPassDesign } from '../pass-design.js';
 import { Save, Palette, Calendar, MapPin, CheckCircle2, TicketCheck, ShieldCheck, Users, Star, QrCode, Sparkles, Paintbrush, LayoutTemplate, Type, Eye, Upload, Image as ImageIcon, Trash2 } from 'lucide-react';
 
@@ -80,6 +81,21 @@ export default function EventSettingsView({ event, onSave }: EventSettingsViewPr
     setFormData(prev => ({ ...prev, primaryColor: preset.primary, accentColor: preset.accent }));
   };
 
+  const handleDashboardMediaPatch = (patch: Partial<EventDetails>) => {
+    setFormData(prev => ({ ...prev, ...patch }));
+  };
+
+  const persistDashboardMedia = async (patch: Partial<EventDetails>) => {
+    const nextForm = { ...formData, ...patch };
+    setFormData(nextForm);
+    await onSave({
+      ...nextForm,
+      primaryColor: design.primaryColor,
+      accentColor: design.accentColor,
+      logoPath: JSON.stringify(design)
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true); setSaveSuccess(false);
     try {
@@ -114,6 +130,12 @@ export default function EventSettingsView({ event, onSave }: EventSettingsViewPr
 
         <div className="apple-card p-6 rounded-3xl space-y-5">
           <div className="flex items-center gap-2 border-b border-slate-100 pb-3"><div className="w-8 h-8 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-600"><Paintbrush size={15} /></div><div><h3 className="font-extrabold text-slate-800 text-sm">Pass Design Studio</h3><p className="text-[10px] text-slate-400">Choose or upload an editable template, then control branding, live fields and the secure QR layer.</p></div></div>
+
+          <DashboardVisualStudio
+            event={formData}
+            onChange={handleDashboardMediaPatch}
+            onPersistMedia={persistDashboardMedia}
+          />
 
           <PassTemplateSelector design={design} onChange={setDesign} />
 
