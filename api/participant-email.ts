@@ -1,5 +1,5 @@
 import { db } from '../src/server/db.js';
-import { getEmailProviderStatus, isValidEmail, normalizeEmail, sendParticipantPassEmail } from '../src/server/pass-email-utils.js';
+import { buildRsvpUrl, ensureParticipantRsvpToken, getEmailProviderStatus, isValidEmail, normalizeEmail, sendParticipantPassEmail } from '../src/server/pass-email-utils.js';
 
 function getParticipantId(req: any): string {
   const queryId = req.query?.id;
@@ -64,12 +64,14 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
+  participant = await ensureParticipantRsvpToken(participant);
   const event = await db.getEvent();
   const subject = `Your Entrance Pass: ${event?.eventName || 'Event'}`;
+  const rsvpUrl = buildRsvpUrl(req, participant.rsvpToken!);
   const log = await db.addEmailLog({ eventId: 'event-1', participantId: participant.id, participantName: participant.fullName, recipientEmail: normalizeEmail(participant.email), subject, status: 'Sending' });
 
   try {
-    const delivery = await sendParticipantPassEmail(req, participant, event, log.id, customMessage);
+    const delivery = await sendParticipantPassEmail(req, participant, event, log.id, customMessage, { rsvpUrl });
     const logs = await db.getEmailLogs();
     const updatedLog = logs.find((entry) => entry.id === log.id) || log;
     res.status(200).json({ success: true, delivered: true, simulated: false, delivery, log: updatedLog });
