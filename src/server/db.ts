@@ -611,8 +611,8 @@ class DB {
   async addScanLog(log: Omit<ScanLog, 'id' | 'createdAt'>): Promise<ScanLog> {
     const newLog: ScanLog = {
       ...log,
-      id: 'log-' + Math.random().toString(36).substring(2, 9),
-      createdAt: new Date().toISOString()
+      id: (log as any).id || 'log-' + Math.random().toString(36).substring(2, 9),
+      createdAt: (log as any).createdAt || new Date().toISOString()
     };
 
     if (this.useSupabase && this.supabase) {
