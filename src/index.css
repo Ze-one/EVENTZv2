@@ -161,6 +161,10 @@ select:focus {
   overflow: clip;
   position: relative;
   isolation: isolate;
+  display: grid !important;
+  grid-template-columns: 188px minmax(0, 1fr);
+  grid-template-rows: auto 1fr auto;
+  align-items: start;
 }
 
 .eventz-shell::before {
@@ -175,12 +179,15 @@ select:focus {
 }
 
 .eventz-sidebar {
-  position: fixed;
+  position: sticky;
   z-index: 90;
-  left: max(16px, calc((100vw - min(1500px, calc(100vw - 32px))) / 2 + 14px));
-  top: 30px;
-  bottom: 30px;
-  width: 176px;
+  top: 16px;
+  grid-column: 1;
+  grid-row: 1 / span 3;
+  width: 188px;
+  height: calc(100vh - 32px);
+  min-height: 620px;
+  align-self: start;
   border: 0 !important;
   background: transparent !important;
   color: var(--eventz-ink) !important;
@@ -199,7 +206,48 @@ select:focus {
 }
 
 .eventz-sidebar .eventz-sidebar-logo {
-  padding: 0 9px 8px;
+  padding: 0 2px 4px;
+}
+
+.eventz-brand-pill {
+  width: 100%;
+  min-width: 0;
+  min-height: 64px;
+  padding: 8px 9px;
+  border-radius: 19px;
+  border: 1px solid rgba(15,23,42,.055);
+  background: rgba(255,255,255,.90);
+  box-shadow: 0 12px 30px rgba(15,23,42,.065);
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  overflow: hidden;
+  text-align: left;
+}
+
+.eventz-brand-pill:hover {
+  transform: translateY(-2px);
+  background: #fff;
+  box-shadow: 0 16px 36px rgba(15,23,42,.09);
+}
+
+.eventz-brand-pill > div {
+  max-width: 100%;
+  min-width: 0;
+  gap: 8px !important;
+}
+
+.eventz-brand-pill > div > div:first-child {
+  flex: 0 0 auto;
+  box-shadow: none !important;
+}
+
+.eventz-brand-pill > div > div:last-child {
+  min-width: 0;
+}
+
+.eventz-brand-pill > div > div:last-child > div {
+  white-space: nowrap;
 }
 
 .eventz-nav {
@@ -251,20 +299,35 @@ select:focus {
 }
 
 .eventz-main {
-  margin-left: 190px;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  width: 100% !important;
+  min-width: 0;
+  margin-left: 0;
   min-height: calc(100vh - 32px);
   padding: 20px 24px 36px !important;
   max-width: none !important;
+  overflow: visible;
+}
+
+.eventz-main > *,
+.eventz-page-transition,
+.eventz-page-transition > *,
+.eventz-main .grid > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .eventz-topbar {
   min-height: 62px;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(170px, 1fr) minmax(0, auto);
   align-items: center;
-  justify-content: space-between;
   gap: 18px;
   margin-bottom: 14px;
   padding: 2px 2px 8px;
+  position: relative;
+  z-index: 110;
 }
 
 .eventz-topbar-copy h1 {
@@ -283,7 +346,9 @@ select:focus {
 }
 
 .eventz-search-pill {
-  width: min(310px, 32vw);
+  width: clamp(180px, 21vw, 300px);
+  max-width: 100%;
+  min-width: 0;
   height: 40px;
   border-radius: 999px;
   border: 1px solid rgba(15,23,42,.055);
@@ -299,9 +364,26 @@ select:focus {
 }
 
 .eventz-topbar-actions {
+  min-width: 0;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
+}
+
+.eventz-header-profile,
+.eventz-header-alerts {
+  flex: 0 0 auto;
+}
+
+.eventz-profile-trigger,
+.eventz-alert-trigger,
+.eventz-date-pill {
+  white-space: nowrap;
+}
+
+.eventz-header-popover {
+  z-index: 250;
 }
 
 .eventz-icon-button {
@@ -584,18 +666,7 @@ select:focus {
   transform: translateY(-1px);
 }
 
-/* External floating controls are visually integrated with the reference topbar */
-.eventz-floating-profile {
-  position: fixed !important;
-  top: 30px !important;
-  right: max(26px, calc((100vw - min(1500px, calc(100vw - 32px))) / 2 + 28px)) !important;
-}
-
-.eventz-floating-alerts {
-  position: fixed !important;
-  top: 30px !important;
-  right: max(230px, calc((100vw - min(1500px, calc(100vw - 32px))) / 2 + 232px)) !important;
-}
+/* Header controls live inside the responsive topbar flow. */
 
 /* Hide default scrollbars but keep scroll functionality */
 .no-scrollbar::-webkit-scrollbar { display: none; }
@@ -629,17 +700,17 @@ select:focus {
     min-height: calc(100vh - 18px);
     margin: 9px auto;
     border-radius: 26px;
+    display: block !important;
   }
 
   .eventz-sidebar {
     position: sticky;
-    left: auto;
-    right: auto;
     top: 0;
-    bottom: auto;
     width: 100%;
+    height: auto;
+    min-height: 0;
     border-radius: 0;
-    background: rgba(255,255,255,.91) !important;
+    background: rgba(255,255,255,.94) !important;
     backdrop-filter: blur(26px);
     -webkit-backdrop-filter: blur(26px);
     border-bottom: 1px solid rgba(15,23,42,.055) !important;
@@ -647,20 +718,32 @@ select:focus {
 
   .eventz-sidebar-inner {
     height: auto;
-    padding: 12px 14px !important;
+    padding: 10px 12px !important;
     flex-direction: row;
     align-items: center !important;
     justify-content: space-between !important;
     gap: 10px;
   }
 
+  .eventz-sidebar-logo {
+    width: min(168px, 62vw);
+  }
+
+  .eventz-brand-pill {
+    min-height: 54px;
+    padding: 5px 7px;
+  }
+
   .eventz-main {
+    width: 100% !important;
     margin-left: 0;
     min-height: auto;
     padding: 14px !important;
   }
 
   .eventz-topbar {
+    grid-template-columns: minmax(150px, 1fr) auto;
+    gap: 10px;
     padding-top: 3px;
   }
 
@@ -668,14 +751,12 @@ select:focus {
     display: none;
   }
 
-  .eventz-floating-profile {
-    top: 16px !important;
-    right: 70px !important;
+  .eventz-profile-trigger {
+    padding-right: 7px !important;
   }
 
-  .eventz-floating-alerts {
-    top: 16px !important;
-    right: 130px !important;
+  .eventz-profile-trigger > div:nth-child(2) {
+    display: none !important;
   }
 }
 
@@ -708,6 +789,38 @@ select:focus {
   .eventz-topbar {
     min-height: 48px;
     margin-bottom: 7px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .eventz-topbar-actions {
+    gap: 6px;
+  }
+
+  .eventz-profile-trigger,
+  .eventz-alert-trigger {
+    width: 38px !important;
+    height: 38px !important;
+    padding: 0 !important;
+    justify-content: center !important;
+  }
+
+  .eventz-profile-trigger > div:first-child {
+    width: 30px !important;
+    height: 30px !important;
+  }
+
+  .eventz-profile-trigger > svg {
+    display: none;
+  }
+
+  .eventz-header-popover {
+    position: fixed !important;
+    top: 66px !important;
+    right: 12px !important;
+    left: 12px !important;
+    width: auto !important;
+    max-height: calc(100vh - 86px) !important;
   }
 
   .eventz-topbar-copy p {
@@ -719,10 +832,6 @@ select:focus {
     border-radius: 20px;
   }
 
-  .eventz-floating-profile,
-  .eventz-floating-alerts {
-    display: none !important;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
