@@ -1,5 +1,5 @@
 import { db } from '../src/server/db.js';
-import { getEmailProviderStatus, isValidEmail, normalizeEmail, sendParticipantPassEmail } from '../src/server/pass-email-utils.js';
+import { buildRsvpUrl, ensureParticipantRsvpToken, getEmailProviderStatus, isValidEmail, normalizeEmail, sendParticipantPassEmail } from '../src/server/pass-email-utils.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
@@ -30,7 +30,7 @@ export default async function handler(req: any, res: any) {
   const results: any[] = [];
 
   for (const id of ids) {
-    const participant = await db.getParticipantById(String(id));
+    let participant = await db.getParticipantById(String(id));
     if (!participant) {
       results.push({ id, success: false, error: 'Participant not found' });
       continue;
@@ -41,10 +41,12 @@ export default async function handler(req: any, res: any) {
       continue;
     }
 
+    participant = await ensureParticipantRsvpToken(participant);
+    const rsvpUrl = buildRsvpUrl(req, participant.rsvpToken!);
     const log = await db.addEmailLog({ eventId: 'event-1', participantId: participant.id, participantName: participant.fullName, recipientEmail: normalizeEmail(participant.email), subject, status: 'Sending' });
 
     try {
-      const delivery = await sendParticipantPassEmail(req, participant, event, log.id, customMessage);
+      const delivery = await sendParticipantPassEmail(req, participant, event, log.id, customMessage, { rsvpUrl });
       results.push({ id, participantName: participant.fullName, email: participant.email, success: true, delivery, logId: log.id });
     } catch (error: any) {
       results.push({ id, participantName: participant.fullName, email: participant.email, success: false, error: error?.message || 'Delivery failed', logId: log.id });
