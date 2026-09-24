@@ -267,11 +267,11 @@ export default function UploadParticipants({ onConfirm, onCancel, existingCatego
 
   return (
     <div className="space-y-6 w-full max-w-5xl mx-auto">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900 text-white p-6 rounded-3xl shadow">
+      <div className="eventz-dashboard-panel flex flex-col md:flex-row md:items-center justify-between gap-4 p-6">
         <div className="space-y-1 text-left">
-          <div className="flex items-center gap-2 text-yellow-500 font-bold text-xs tracking-wider uppercase"><Sparkles size={14} /> Category-Based Roster Upload</div>
-          <h2 className="text-xl font-black">Upload Registered Participants</h2>
-          <p className="text-slate-400 text-xs max-w-lg leading-relaxed">Create or select a participant category first, then browse and upload the roster for that category. Every imported participant will inherit the selected category.</p>
+          <div className="flex items-center gap-2 text-[#f2a900] font-bold text-xs tracking-wider uppercase"><Sparkles size={14} /> Category-Based Roster Upload</div>
+          <h2 className="text-xl font-black text-slate-950">Upload Registered Participants</h2>
+          <p className="text-slate-500 text-xs max-w-lg leading-relaxed">Create or select a participant category first, then browse and upload the roster for that category. Every imported participant will inherit the selected category.</p>
         </div>
         <div className="flex gap-2">
           <button onClick={() => { setPasteMode(!pasteMode); setPreviewList([]); setError(''); }} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all">{pasteMode ? <FileText size={14} /> : <Clipboard size={14} />}{pasteMode ? 'Upload File instead' : 'Copy-Paste Text Mode'}</button>
