@@ -99,7 +99,7 @@ export default function RsvpResponseView({ token, onStaffLogin }: Props) {
   const event = state?.event;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white flex flex-col overflow-hidden relative">
+    <div className="eventz-public-page min-h-screen text-slate-900 flex flex-col overflow-hidden relative">
       <style>{`
         @keyframes rsvpRise {
           from { opacity: 0; transform: translateY(24px) scale(.98); filter: blur(8px); }
@@ -113,8 +113,8 @@ export default function RsvpResponseView({ token, onStaffLogin }: Props) {
       <div className="pointer-events-none absolute -bottom-48 -left-24 w-[420px] h-[420px] rounded-full bg-yellow-400/10 blur-3xl" />
 
       <header className="relative z-10 max-w-5xl w-full mx-auto px-5 py-6 flex items-center justify-between">
-        <Logo size="md" variant="light" />
-        <button onClick={onStaffLogin} className="text-xs font-bold text-slate-400 hover:text-white transition-colors">
+        <Logo size="md" variant="dark" />
+        <button onClick={onStaffLogin} className="text-xs font-bold text-slate-500 hover:text-slate-900 transition-colors">
           Staff login
         </button>
       </header>
@@ -122,7 +122,7 @@ export default function RsvpResponseView({ token, onStaffLogin }: Props) {
       <main className="relative z-10 flex-1 flex items-center justify-center px-5 pb-16">
         <div className="w-full max-w-3xl eventz-rsvp-rise">
           {loading ? (
-            <div className="rounded-[32px] border border-white/10 bg-white/5 backdrop-blur-xl p-12 text-center">
+            <div className="eventz-card rounded-[32px] border border-white bg-white/92 backdrop-blur-xl p-12 text-center">
               <RefreshCw size={24} className="animate-spin mx-auto text-yellow-400" />
               <p className="mt-4 text-sm font-black">Loading your RSVP...</p>
             </div>
@@ -133,7 +133,7 @@ export default function RsvpResponseView({ token, onStaffLogin }: Props) {
               <p className="text-sm text-slate-500 mt-3">{error}</p>
             </div>
           ) : state ? (
-            <div className="rounded-[34px] bg-white/95 text-slate-900 backdrop-blur-2xl border border-white/70 shadow-[0_40px_120px_rgba(0,0,0,.35)] overflow-hidden">
+            <div className="eventz-card rounded-[34px] bg-white/95 text-slate-900 backdrop-blur-2xl border border-white/70 overflow-hidden">
               <div className={`px-6 md:px-8 py-6 border-b ${declined ? 'bg-rose-50 border-rose-100' : 'bg-emerald-50 border-emerald-100'}`}>
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
