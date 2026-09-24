@@ -10,7 +10,7 @@ const DB_FILE = process.env.VERCEL || process.env.NODE_ENV === 'production'
   ? path.join('/tmp', 'db.json')
   : path.join(process.cwd(), 'db.json');
 
-type AttendeeRequest = {
+type LegacyRequest = {
   id: string;
   type: 'add_attendee' | 'delete_attendee' | 'update_attendee' | 'reset_checkin';
   status: 'pending' | 'approved' | 'rejected';
@@ -21,6 +21,8 @@ type AttendeeRequest = {
   reviewedBy?: string;
 };
 
+type RegistrationStatus = 'pending' | 'approved' | 'rejected' | 'waitlisted';
+
 function getSupabase() {
   const url = process.env.SUPABASE_URL || '';
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
@@ -28,82 +30,290 @@ function getSupabase() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-function readRequests(): AttendeeRequest[] {
+function readJsonFile(file: string, fallback: any) {
   try {
-    if (!fs.existsSync(REQUESTS_FILE)) return [];
-    return JSON.parse(fs.readFileSync(REQUESTS_FILE, 'utf-8'));
+    if (!fs.existsSync(file)) return fallback;
+    return JSON.parse(fs.readFileSync(file, 'utf-8'));
   } catch {
-    return [];
+    return fallback;
   }
 }
 
-function writeRequests(requests: AttendeeRequest[]) {
-  fs.writeFileSync(REQUESTS_FILE, JSON.stringify(requests, null, 2), 'utf-8');
+function writeJsonFile(file: string, value: any) {
+  fs.writeFileSync(file, JSON.stringify(value, null, 2), 'utf-8');
+}
+
+function readLegacyRequests(): LegacyRequest[] {
+  return readJsonFile(REQUESTS_FILE, []);
 }
 
 function readLocalDb() {
-  try {
-    if (!fs.existsSync(DB_FILE)) return { participants: [] };
-    return JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
-  } catch {
-    return { participants: [] };
-  }
+  return readJsonFile(DB_FILE, { participants: [], events: [], participantCategories: [], registrationRequests: [] });
 }
 
 function writeLocalDb(db: any) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf-8');
+  writeJsonFile(DB_FILE, db);
 }
 
-function makePassId(count: number) {
+function slugify(value: string) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+function makePassId(count: number, eventDate?: string) {
+  const year = String(eventDate || '').slice(0, 4) || new Date().getFullYear().toString();
   const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
-  return `EVTZ-2026-${String(count).padStart(4, '0')}-${suffix}`;
+  return `ETSN-${year}-${String(count).padStart(4, '0')}-${suffix}`;
 }
 
-async function applyRequest(reqItem: AttendeeRequest) {
+function normalizeEmail(value: unknown) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function normalizePhone(value: unknown) {
+  return String(value || '').trim();
+}
+
+async function getCategories(publicOnly = false) {
+  const supabase = getSupabase();
+  if (supabase) {
+    let query = supabase
+      .from('participantCategories')
+      .select('*')
+      .eq('eventId', 'event-1')
+      .eq('isActive', true)
+      .order('name', { ascending: true });
+    if (publicOnly) query = query.eq('isPublic', true);
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+    return data || [];
+  }
+
+  const db = readLocalDb();
+  const defaults = [
+    { id: 'cat-attendees', eventId: 'event-1', name: 'Attendees', slug: 'attendees', description: 'General event participants.', color: '#0f172a', accessLevel: 'General Access', instructions: '', capacity: null, isActive: true, isPublic: true },
+    { id: 'cat-volunteers', eventId: 'event-1', name: 'Volunteers', slug: 'volunteers', description: 'Event volunteers and support team.', color: '#059669', accessLevel: 'Operations Access', instructions: '', capacity: null, isActive: true, isPublic: true }
+  ];
+  const source = Array.isArray(db.participantCategories) && db.participantCategories.length ? db.participantCategories : defaults;
+  return source.filter((c: any) => c.isActive !== false && (!publicOnly || c.isPublic !== false));
+}
+
+async function getRegistrations() {
+  const supabase = getSupabase();
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('registrationRequests')
+      .select('*')
+      .eq('eventId', 'event-1')
+      .order('submittedAt', { ascending: false });
+    if (error) throw new Error(error.message);
+    return data || [];
+  }
+  const db = readLocalDb();
+  return [...(db.registrationRequests || [])].sort((a: any, b: any) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+}
+
+async function createRegistration(body: any) {
+  const fullName = String(body.fullName || '').trim();
+  const email = normalizeEmail(body.email);
+  const phone = normalizePhone(body.phone);
+  const organization = String(body.organization || '').trim();
+  const categoryId = String(body.categoryId || '').trim();
+  const notes = String(body.notes || '').trim().slice(0, 1000);
+  const rsvpStatus = body.rsvpStatus === 'maybe' ? 'maybe' : 'yes';
+
+  if (fullName.length < 2) throw new Error('Please enter your full name.');
+  if (!email && !phone) throw new Error('Enter at least an email address or phone number.');
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Enter a valid email address.');
+
+  const categories = await getCategories(true);
+  const category = categories.find((item: any) => item.id === categoryId);
+  if (!category) throw new Error('Select an available registration category.');
+
+  const supabase = getSupabase();
+  if (supabase) {
+    if (email) {
+      const { data: duplicate } = await supabase
+        .from('registrationRequests')
+        .select('id,status')
+        .eq('eventId', 'event-1')
+        .ilike('email', email)
+        .in('status', ['pending', 'approved', 'waitlisted'])
+        .limit(1);
+      if (duplicate?.length) throw new Error('A registration with this email address already exists.');
+    }
+
+    const record = {
+      id: `reg-${Math.random().toString(36).slice(2, 10)}`,
+      eventId: 'event-1',
+      fullName,
+      email,
+      phone,
+      organization,
+      categoryId: category.id,
+      categoryName: category.name,
+      rsvpStatus,
+      status: 'pending',
+      notes,
+      source: 'public_form',
+      submittedAt: new Date().toISOString()
+    };
+    const { data, error } = await supabase.from('registrationRequests').insert(record).select().single();
+    if (error) throw new Error(error.message);
+    return data;
+  }
+
+  const db = readLocalDb();
+  if (!db.registrationRequests) db.registrationRequests = [];
+  if (email && db.registrationRequests.some((r: any) => normalizeEmail(r.email) === email && ['pending', 'approved', 'waitlisted'].includes(r.status))) {
+    throw new Error('A registration with this email address already exists.');
+  }
+  const record = {
+    id: `reg-${Math.random().toString(36).slice(2, 10)}`,
+    eventId: 'event-1',
+    fullName,
+    email,
+    phone,
+    organization,
+    categoryId: category.id,
+    categoryName: category.name,
+    rsvpStatus,
+    status: 'pending',
+    notes,
+    source: 'public_form',
+    submittedAt: new Date().toISOString()
+  };
+  db.registrationRequests.push(record);
+  writeLocalDb(db);
+  return record;
+}
+
+async function reviewRegistration(id: string, decision: RegistrationStatus, reviewedBy: string, rejectionReason?: string) {
+  if (!['approved', 'rejected', 'waitlisted'].includes(decision)) throw new Error('Invalid registration decision.');
   const supabase = getSupabase();
   const now = new Date().toISOString();
 
   if (supabase) {
-    if (reqItem.type === 'add_attendee') {
+    const { data: request, error: requestError } = await supabase
+      .from('registrationRequests')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (requestError) throw new Error(requestError.message);
+    if (!request) throw new Error('Registration request not found.');
+    if (request.status === 'approved') throw new Error('This registration is already approved.');
+
+    let participant: any = null;
+    if (decision === 'approved') {
+      const { data: category } = request.categoryId
+        ? await supabase.from('participantCategories').select('*').eq('id', request.categoryId).maybeSingle()
+        : { data: null };
+
+      if (category?.capacity != null) {
+        const { count } = await supabase
+          .from('participants')
+          .select('*', { count: 'exact', head: true })
+          .eq('eventId', 'event-1')
+          .eq('category', request.categoryName);
+        if ((count || 0) >= category.capacity) {
+          const { data, error } = await supabase.from('registrationRequests')
+            .update({ status: 'waitlisted', reviewedAt: now, reviewedBy })
+            .eq('id', id).select().single();
+          if (error) throw new Error(error.message);
+          return { registration: data, participant: null, capacityReached: true };
+        }
+      }
+
+      if (request.email) {
+        const { data: existing } = await supabase
+          .from('participants')
+          .select('id')
+          .eq('eventId', 'event-1')
+          .ilike('email', request.email)
+          .limit(1);
+        if (existing?.length) throw new Error('A participant with this email already exists.');
+      }
+
       const { count } = await supabase.from('participants').select('*', { count: 'exact', head: true });
-      const participant = {
+      const { data: event } = await supabase.from('events').select('eventDate').eq('id', 'event-1').maybeSingle();
+      participant = {
         id: `part-${Math.random().toString(36).slice(2, 9)}`,
         eventId: 'event-1',
-        fullName: reqItem.payload.fullName || 'Unnamed Attendee',
-        phone: reqItem.payload.phone || '',
-        email: reqItem.payload.email || '',
-        organization: reqItem.payload.organization || '',
-        category: reqItem.payload.category || 'Attendee',
-        passId: makePassId((count || 0) + 1),
+        fullName: request.fullName,
+        phone: request.phone || '',
+        email: request.email || '',
+        organization: request.organization || '',
+        category: request.categoryName || 'Attendees',
+        passId: makePassId((count || 0) + 1, event?.eventDate),
         status: 'Not Used',
         createdAt: now,
         updatedAt: now
       };
-      const { error } = await supabase.from('participants').insert(participant);
-      if (error) throw new Error(error.message);
-      return participant;
+      const { error: participantError } = await supabase.from('participants').insert(participant);
+      if (participantError) throw new Error(participantError.message);
     }
 
-    if (reqItem.type === 'delete_attendee') {
-      const { error } = await supabase.from('participants').delete().eq('id', reqItem.payload.participantId);
-      if (error) throw new Error(error.message);
-      return true;
-    }
+    const updates: any = {
+      status: decision,
+      reviewedAt: now,
+      reviewedBy: reviewedBy || 'Admin',
+      rejectionReason: decision === 'rejected' ? String(rejectionReason || '').trim() : null
+    };
+    if (participant) updates.participantId = participant.id;
 
-    if (reqItem.type === 'update_attendee' || reqItem.type === 'reset_checkin') {
-      const updates = reqItem.type === 'reset_checkin'
-        ? { status: 'Not Used', checkedInAt: null, checkedInBy: null, updatedAt: now }
-        : { ...(reqItem.payload.updates || {}), updatedAt: now };
-      const { error } = await supabase.from('participants').update(updates).eq('id', reqItem.payload.participantId);
-      if (error) throw new Error(error.message);
-      return true;
-    }
+    const { data: registration, error } = await supabase
+      .from('registrationRequests')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return { registration, participant };
   }
 
   const db = readLocalDb();
+  if (!db.registrationRequests) db.registrationRequests = [];
   if (!db.participants) db.participants = [];
+  const index = db.registrationRequests.findIndex((r: any) => r.id === id);
+  if (index === -1) throw new Error('Registration request not found.');
+  const request = db.registrationRequests[index];
+  if (request.status === 'approved') throw new Error('This registration is already approved.');
 
-  if (reqItem.type === 'add_attendee') {
+  let participant: any = null;
+  if (decision === 'approved') {
+    participant = {
+      id: `part-${Math.random().toString(36).slice(2, 9)}`,
+      eventId: 'event-1',
+      fullName: request.fullName,
+      phone: request.phone || '',
+      email: request.email || '',
+      organization: request.organization || '',
+      category: request.categoryName || 'Attendees',
+      passId: makePassId(db.participants.length + 1, db.events?.[0]?.eventDate),
+      status: 'Not Used',
+      createdAt: now,
+      updatedAt: now
+    };
+    db.participants.push(participant);
+    request.participantId = participant.id;
+  }
+  request.status = decision;
+  request.reviewedAt = now;
+  request.reviewedBy = reviewedBy || 'Admin';
+  request.rejectionReason = decision === 'rejected' ? String(rejectionReason || '').trim() : null;
+  db.registrationRequests[index] = request;
+  writeLocalDb(db);
+  return { registration: request, participant };
+}
+
+async function applyLegacyRequest(reqItem: LegacyRequest) {
+  const supabase = getSupabase();
+  const now = new Date().toISOString();
+  if (supabase && reqItem.type === 'add_attendee') {
+    const { count } = await supabase.from('participants').select('*', { count: 'exact', head: true });
     const participant = {
       id: `part-${Math.random().toString(36).slice(2, 9)}`,
       eventId: 'event-1',
@@ -111,42 +321,59 @@ async function applyRequest(reqItem: AttendeeRequest) {
       phone: reqItem.payload.phone || '',
       email: reqItem.payload.email || '',
       organization: reqItem.payload.organization || '',
-      category: reqItem.payload.category || 'Attendee',
-      passId: makePassId(db.participants.length + 1),
+      category: reqItem.payload.category || 'Attendees',
+      passId: makePassId((count || 0) + 1),
       status: 'Not Used',
       createdAt: now,
       updatedAt: now
     };
-    db.participants.push(participant);
-    writeLocalDb(db);
+    const { error } = await supabase.from('participants').insert(participant);
+    if (error) throw new Error(error.message);
     return participant;
   }
-
-  const index = db.participants.findIndex((p: any) => p.id === reqItem.payload.participantId);
-  if (index === -1) throw new Error('Participant not found.');
-
-  if (reqItem.type === 'delete_attendee') {
-    db.participants.splice(index, 1);
-  } else if (reqItem.type === 'reset_checkin') {
-    db.participants[index] = { ...db.participants[index], status: 'Not Used', checkedInAt: undefined, checkedInBy: undefined, updatedAt: now };
-  } else if (reqItem.type === 'update_attendee') {
-    db.participants[index] = { ...db.participants[index], ...(reqItem.payload.updates || {}), updatedAt: now };
-  }
-
-  writeLocalDb(db);
   return true;
 }
 
 export default async function handler(req: any, res: any) {
   try {
+    const mode = String(req.query?.mode || '');
+
+    if (req.method === 'GET' && mode === 'categories') {
+      res.status(200).json(await getCategories(true));
+      return;
+    }
+
+    if (req.method === 'GET' && mode === 'registrations') {
+      res.status(200).json(await getRegistrations());
+      return;
+    }
+
+    if (req.method === 'POST' && req.body?.action === 'public_registration') {
+      const registration = await createRegistration(req.body);
+      res.status(201).json({ success: true, registration, message: 'Registration submitted for review.' });
+      return;
+    }
+
+    if (req.method === 'PUT' && req.body?.kind === 'registration') {
+      const result = await reviewRegistration(
+        String(req.body.id || ''),
+        req.body.decision,
+        String(req.body.reviewedBy || 'Admin'),
+        req.body.rejectionReason
+      );
+      res.status(200).json({ success: true, ...result });
+      return;
+    }
+
+    // Backward-compatible gate/admin attendee request workflow.
     if (req.method === 'GET') {
-      res.status(200).json(readRequests().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+      res.status(200).json(readLegacyRequests().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
       return;
     }
 
     if (req.method === 'POST') {
       const body = req.body || {};
-      const request: AttendeeRequest = {
+      const request: LegacyRequest = {
         id: `req-${Math.random().toString(36).slice(2, 9)}`,
         type: body.type,
         status: 'pending',
@@ -158,16 +385,16 @@ export default async function handler(req: any, res: any) {
         res.status(400).json({ error: 'Invalid request type.' });
         return;
       }
-      const requests = readRequests();
+      const requests = readLegacyRequests();
       requests.push(request);
-      writeRequests(requests);
+      writeJsonFile(REQUESTS_FILE, requests);
       res.status(201).json(request);
       return;
     }
 
     if (req.method === 'PUT') {
       const { id, decision, reviewedBy } = req.body || {};
-      const requests = readRequests();
+      const requests = readLegacyRequests();
       const index = requests.findIndex((item) => item.id === id);
       if (index === -1) {
         res.status(404).json({ error: 'Request not found.' });
@@ -178,7 +405,7 @@ export default async function handler(req: any, res: any) {
         return;
       }
       if (decision === 'approved') {
-        await applyRequest(requests[index]);
+        await applyLegacyRequest(requests[index]);
         requests[index].status = 'approved';
       } else if (decision === 'rejected') {
         requests[index].status = 'rejected';
@@ -188,7 +415,7 @@ export default async function handler(req: any, res: any) {
       }
       requests[index].reviewedAt = new Date().toISOString();
       requests[index].reviewedBy = reviewedBy || 'Admin';
-      writeRequests(requests);
+      writeJsonFile(REQUESTS_FILE, requests);
       res.status(200).json(requests[index]);
       return;
     }
@@ -196,6 +423,8 @@ export default async function handler(req: any, res: any) {
     res.setHeader('Allow', 'GET, POST, PUT');
     res.status(405).json({ error: 'Method not allowed' });
   } catch (error: any) {
-    res.status(500).json({ error: error?.message || 'Attendee request failed.' });
+    const message = error?.message || 'Registration request failed.';
+    const status = /already exists|already approved|valid email|full name|Select an available/.test(message) ? 400 : 500;
+    res.status(status).json({ error: message });
   }
 }
