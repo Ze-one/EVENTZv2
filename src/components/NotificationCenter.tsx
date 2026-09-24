@@ -219,7 +219,7 @@ export default function NotificationCenter() {
     storeNotices([]);
   };
 
-  if (!isAdmin) return null;
+  if (!isAdmin || window.location.pathname.startsWith('/register') || window.location.pathname.startsWith('/rsvp/')) return null;
 
   return (
     <div className="eventz-floating-alerts fixed z-[130] font-sans text-left">
