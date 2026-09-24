@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createClient } from '@supabase/supabase-js';
 import {
   CheckCircle2,
   Film,
@@ -81,16 +82,43 @@ export default function DashboardVisualStudio({ event, onChange, onPersistMedia 
 
     setUploading(true);
     try {
-      const response = await fetch('/api/dashboard-media', {
+      const ticketResponse = await fetch('/api/dashboard-media/upload-ticket', {
         method: 'POST',
-        headers: eventzAuthHeaders({
-          'Content-Type': file.type,
-          'X-File-Name': file.name
-        }),
-        body: file
+        headers: eventzAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({
+          fileName: file.name,
+          contentType: file.type,
+          fileSize: file.size
+        })
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Dashboard visual upload failed.');
+      const ticket = await ticketResponse.json();
+      if (!ticketResponse.ok) throw new Error(ticket.error || 'Unable to prepare dashboard visual upload.');
+
+      const storage = createClient(ticket.supabaseUrl, ticket.anonKey, {
+        auth: { persistSession: false, autoRefreshToken: false }
+      });
+
+      const { error: storageError } = await storage.storage
+        .from(ticket.bucket)
+        .uploadToSignedUrl(ticket.path, ticket.token, file, {
+          contentType: file.type,
+          cacheControl: '3600'
+        });
+
+      if (storageError) throw new Error(storageError.message || 'Supabase Storage upload failed.');
+
+      const mediaType = file.type === 'image/gif' ? 'gif' : file.type.startsWith('video/') ? 'video' : 'image';
+      const activateResponse = await fetch('/api/dashboard-media/activate', {
+        method: 'POST',
+        headers: eventzAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({
+          path: ticket.path,
+          mediaType,
+          name: file.name
+        })
+      });
+      const data = await activateResponse.json();
+      if (!activateResponse.ok) throw new Error(data.error || 'Dashboard visual uploaded but could not be activated.');
 
       const patch: Partial<EventDetails> = {
         dashboardMediaUrl: data.url,
@@ -107,7 +135,7 @@ export default function DashboardVisualStudio({ event, onChange, onPersistMedia 
 
       onChange(patch);
       await onPersistMedia(patch);
-      setMessage('Dashboard visual uploaded and activated.');
+      setMessage('Dashboard visual uploaded directly to Supabase Storage and activated.');
     } catch (uploadError: any) {
       setError(uploadError?.message || 'Dashboard visual upload failed.');
     } finally {
