@@ -101,7 +101,7 @@ export default function DashboardView({ participants, scanLogs, event, onNavigat
         </div>
       </div>
 
-      <div className="grid md:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
         <MetricCard
           tone="navy"
           eyebrow={todayLabel}
@@ -338,16 +338,16 @@ function MetricCard({
           : 'eventz-metric-blue';
 
   return (
-    <div className={`eventz-metric-card ${toneClass}`}>
+    <div className={`eventz-metric-card min-w-0 ${toneClass}`}>
       <div className="flex items-start justify-between gap-3">
         <span className="eventz-chip">{eyebrow}</span>
         <div className="w-8 h-8 rounded-full border border-white/20 bg-white/10 flex items-center justify-center">{icon}</div>
       </div>
-      <p className="text-[11px] font-black mt-3 opacity-95">{label}</p>
+      <p className="text-[11px] font-black mt-3 opacity-95 truncate">{label}</p>
       <div className="mt-3 flex items-end justify-between gap-3">
         <div>
           <p className="text-[28px] leading-none font-black tracking-[-0.04em]">{value}</p>
-          <p className="text-[9px] mt-2 opacity-70 font-semibold">{supporting}</p>
+          <p className="text-[9px] mt-2 opacity-70 font-semibold line-clamp-2">{supporting}</p>
         </div>
         <div className="flex -space-x-2">
           {people.slice(0, 3).map((name, index) => (
