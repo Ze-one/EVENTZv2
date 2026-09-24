@@ -7,6 +7,7 @@ import dotenv from 'dotenv';
 import express from 'express';
 import path from 'path';
 import crypto from 'crypto';
+import { createClient } from '@supabase/supabase-js';
 import { db } from './src/server/db.js';
 import { PassStatus, ScanResult } from './src/types.js';
 import { createSignedPassToken } from './src/server/pass-security.js';
@@ -63,6 +64,129 @@ app.post('/api/event', async (req, res) => {
   const event = await db.updateEvent('event-1', req.body || {});
   return res.json(event);
 });
+
+app.post(
+  '/api/dashboard-media',
+  express.raw({
+    type: ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'video/mp4', 'video/webm'],
+    limit: '12mb'
+  }),
+  async (req, res) => {
+    const auth = requireSession(req, ['admin']);
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+    try {
+      const contentType = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+      const allowed = new Set([
+        'image/png',
+        'image/jpeg',
+        'image/webp',
+        'image/gif',
+        'video/mp4',
+        'video/webm'
+      ]);
+
+      if (!allowed.has(contentType)) {
+        return res.status(415).json({ error: 'Unsupported dashboard media type. Use PNG, JPG, WebP, GIF, MP4, or WebM.' });
+      }
+
+      const body = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || []);
+      if (!body.length) return res.status(400).json({ error: 'No media file was received.' });
+      if (body.length > 12 * 1024 * 1024) {
+        return res.status(413).json({ error: 'Dashboard media must be 12 MB or smaller.' });
+      }
+
+      const supabaseUrl = process.env.SUPABASE_URL || '';
+      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+      if (!supabaseUrl || !serviceKey) {
+        return res.status(500).json({ error: 'Supabase Storage is not configured on the server.' });
+      }
+
+      const extensionByType: Record<string, string> = {
+        'image/png': 'png',
+        'image/jpeg': 'jpg',
+        'image/webp': 'webp',
+        'image/gif': 'gif',
+        'video/mp4': 'mp4',
+        'video/webm': 'webm'
+      };
+
+      const originalName = String(req.headers['x-file-name'] || 'dashboard-media')
+        .replace(/[^a-zA-Z0-9._-]+/g, '-')
+        .slice(0, 100);
+      const ext = extensionByType[contentType] || 'bin';
+      const safeBase = originalName.replace(/\.[^.]+$/, '').replace(/^-+|-+$/g, '') || 'dashboard-media';
+      const objectPath = `event-1/dashboard/${Date.now()}-${crypto.randomBytes(5).toString('hex')}-${safeBase}.${ext}`;
+
+      const storage = createClient(supabaseUrl, serviceKey, {
+        auth: { persistSession: false }
+      });
+
+      const { error: uploadError } = await storage.storage
+        .from('eventz-media')
+        .upload(objectPath, body, {
+          contentType,
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (uploadError) throw new Error(uploadError.message);
+
+      const { data: publicData } = storage.storage.from('eventz-media').getPublicUrl(objectPath);
+      const mediaType = contentType === 'image/gif' ? 'gif' : contentType.startsWith('video/') ? 'video' : 'image';
+
+      return res.status(201).json({
+        success: true,
+        url: publicData.publicUrl,
+        path: objectPath,
+        mediaType,
+        name: originalName,
+        size: body.length,
+        contentType
+      });
+    } catch (error: any) {
+      return res.status(500).json({ error: error?.message || 'Dashboard media upload failed.' });
+    }
+  }
+);
+
+app.delete('/api/dashboard-media', async (req, res) => {
+  const auth = requireSession(req, ['admin']);
+  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+  try {
+    const objectPath = String(req.body?.path || '').trim();
+    if (!objectPath || !objectPath.startsWith('event-1/dashboard/')) {
+      return res.status(400).json({ error: 'A valid EVENTZ dashboard media path is required.' });
+    }
+
+    const supabaseUrl = process.env.SUPABASE_URL || '';
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+    if (!supabaseUrl || !serviceKey) {
+      return res.status(500).json({ error: 'Supabase Storage is not configured on the server.' });
+    }
+
+    const storage = createClient(supabaseUrl, serviceKey, {
+      auth: { persistSession: false }
+    });
+
+    const { error } = await storage.storage.from('eventz-media').remove([objectPath]);
+    if (error) throw new Error(error.message);
+
+    const event = await db.updateEvent('event-1', {
+      dashboardMediaUrl: null,
+      dashboardMediaPath: null,
+      dashboardMediaType: null,
+      dashboardMediaName: null,
+      dashboardMediaEnabled: false
+    } as any);
+
+    return res.json({ success: true, event });
+  } catch (error: any) {
+    return res.status(500).json({ error: error?.message || 'Unable to remove dashboard media.' });
+  }
+});
+
 
 app.get('/api/participants', async (_req, res) => {
   const list = await db.getParticipants();
