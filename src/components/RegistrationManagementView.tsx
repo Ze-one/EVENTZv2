@@ -26,7 +26,7 @@ type Registration = {
   phone: string;
   organization: string;
   categoryName: string;
-  rsvpStatus: 'yes' | 'maybe';
+  rsvpStatus: 'yes' | 'maybe' | 'declined';
   status: 'pending' | 'approved' | 'rejected' | 'waitlisted';
   notes?: string;
   participantId?: string | null;
@@ -34,6 +34,10 @@ type Registration = {
   reviewedAt?: string | null;
   reviewedBy?: string | null;
   rejectionReason?: string | null;
+  rsvpUpdatedAt?: string | null;
+  approvalEmailStatus?: string | null;
+  approvalEmailSentAt?: string | null;
+  approvalEmailError?: string | null;
 };
 
 interface Props {
@@ -134,7 +138,22 @@ export default function RegistrationManagementView({ adminName, onChanged }: Pro
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Review action failed.');
-      setMessage(data.capacityReached ? 'Category capacity was reached. Registration moved to waitlist.' : `Registration ${decision}.`);
+      if (data.capacityReached) {
+        setMessage('Category capacity was reached. Registration moved to waitlist.');
+      } else if (decision === 'approved') {
+        const emailStatus = data.registration?.approvalEmailStatus;
+        setMessage(
+          emailStatus === 'sent'
+            ? 'Registration approved, pass created, and approval email sent.'
+            : emailStatus === 'skipped'
+              ? 'Registration approved and pass created. No approval email was sent because no valid email address is available.'
+              : emailStatus === 'failed'
+                ? `Registration approved and pass created, but the approval email failed: ${data.registration?.approvalEmailError || 'delivery error'}`
+                : 'Registration approved and pass created.'
+        );
+      } else {
+        setMessage(`Registration ${decision}.`);
+      }
       await load(true);
       onChanged?.();
     } catch (err: any) {
@@ -347,7 +366,15 @@ export default function RegistrationManagementView({ adminName, onChanged }: Pro
                     </div>
                   </td>
                   <td className="py-4 px-4"><span className="font-black text-slate-700 bg-slate-100 px-2 py-1 rounded-full">{item.categoryName || 'Attendees'}</span></td>
-                  <td className="py-4 px-4">{item.rsvpStatus === 'yes' ? <span className="inline-flex items-center gap-1 text-emerald-700 font-bold"><CheckCircle2 size={13} /> Attending</span> : <span className="inline-flex items-center gap-1 text-amber-700 font-bold"><Clock3 size={13} /> Maybe</span>}</td>
+                  <td className="py-4 px-4">
+                    {item.rsvpStatus === 'yes' ? (
+                      <span className="inline-flex items-center gap-1 text-emerald-700 font-bold"><CheckCircle2 size={13} /> Attending</span>
+                    ) : item.rsvpStatus === 'declined' ? (
+                      <span className="inline-flex items-center gap-1 text-rose-700 font-bold"><UserX size={13} /> Declined</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-amber-700 font-bold"><Clock3 size={13} /> Maybe</span>
+                    )}
+                  </td>
                   <td className="py-4 px-4 text-slate-500">{new Date(item.submittedAt).toLocaleString()}</td>
                   <td className="py-4 px-4">
                     <span className={`px-2.5 py-1 rounded-full border text-[9px] uppercase font-black ${statusClass(item.status)}`}>{item.status}</span>
@@ -406,10 +433,20 @@ export default function RegistrationManagementView({ adminName, onChanged }: Pro
                 <InfoCard icon={<MapPin size={15} />} label="Category / access request" value={selected.categoryName || 'Attendees'} />
               </div>
 
-              <div className="grid sm:grid-cols-3 gap-3">
+              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
                   <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">RSVP</p>
-                  <p className="text-sm font-black text-slate-900 mt-2">{selected.rsvpStatus === 'yes' ? 'Plans to attend' : 'Maybe / undecided'}</p>
+                  <p className={`text-sm font-black mt-2 ${selected.rsvpStatus === 'declined' ? 'text-rose-700' : 'text-slate-900'}`}>
+                    {selected.rsvpStatus === 'yes' ? 'Attending' : selected.rsvpStatus === 'declined' ? 'Declined' : 'Maybe / undecided'}
+                  </p>
+                  {selected.rsvpUpdatedAt && <p className="text-[9px] text-slate-400 mt-1">{new Date(selected.rsvpUpdatedAt).toLocaleString()}</p>}
+                </div>
+                <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
+                  <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Approval email</p>
+                  <p className={`text-sm font-black mt-2 ${selected.approvalEmailStatus === 'failed' ? 'text-rose-700' : selected.approvalEmailStatus === 'sent' ? 'text-emerald-700' : 'text-slate-900'}`}>
+                    {selected.approvalEmailStatus === 'sent' ? 'Sent' : selected.approvalEmailStatus === 'failed' ? 'Failed' : selected.approvalEmailStatus === 'skipped' ? 'Skipped' : 'Not sent'}
+                  </p>
+                  {selected.approvalEmailSentAt && <p className="text-[9px] text-slate-400 mt-1">{new Date(selected.approvalEmailSentAt).toLocaleString()}</p>}
                 </div>
                 <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
                   <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Submitted</p>
@@ -417,9 +454,16 @@ export default function RegistrationManagementView({ adminName, onChanged }: Pro
                 </div>
                 <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
                   <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Participant record</p>
-                  <p className="text-sm font-black text-slate-900 mt-2">{selected.participantId || 'Not created yet'}</p>
+                  <p className="text-sm font-black text-slate-900 mt-2 break-all">{selected.participantId || 'Not created yet'}</p>
                 </div>
               </div>
+
+              {selected.approvalEmailError && (
+                <div className="rounded-2xl bg-rose-50 border border-rose-100 p-4">
+                  <p className="text-[9px] uppercase font-black tracking-wider text-rose-500">Approval email delivery issue</p>
+                  <p className="text-xs text-rose-700 mt-2 leading-relaxed">{selected.approvalEmailError}</p>
+                </div>
+              )}
 
               <div className="rounded-2xl border border-slate-100 bg-slate-50 p-5">
                 <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Registrant note</p>
