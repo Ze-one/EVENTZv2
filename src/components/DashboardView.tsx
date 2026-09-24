@@ -31,6 +31,7 @@ interface DashboardViewProps {
 
 export default function DashboardView({ participants, scanLogs, event, onNavigate, onRefresh }: DashboardViewProps) {
   const total = participants.length;
+  const hasHeroMedia = Boolean(event.dashboardMediaUrl && event.dashboardMediaEnabled !== false);
   const checkedIn = participants.filter((p) => p.status === 'Used').length;
   const notCheckedIn = participants.filter((p) => p.status === 'Not Used').length;
   const cancelled = participants.filter((p) => p.status === 'Cancelled').length;
@@ -74,7 +75,7 @@ export default function DashboardView({ participants, scanLogs, event, onNavigat
 
   return (
     <div className="space-y-4 w-full text-left">
-      {event.dashboardMediaUrl && event.dashboardMediaEnabled !== false ? (
+      {hasHeroMedia ? (
         <DashboardHero
           event={event}
           todayLabel={todayLabel}
@@ -113,7 +114,7 @@ export default function DashboardView({ participants, scanLogs, event, onNavigat
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+      <div className={`eventz-dashboard-metrics grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 ${hasHeroMedia ? 'eventz-dashboard-metrics-with-hero' : ''}`}>
         <MetricCard
           tone="navy"
           eyebrow={todayLabel}
