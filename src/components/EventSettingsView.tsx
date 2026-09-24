@@ -6,6 +6,7 @@
 import React, { useMemo, useState } from 'react';
 import { EventDetails, Participant, PassStatus } from '../types.js';
 import EventPassCard from './EventPassCard.tsx';
+import RegistrationControlsPanel from './RegistrationControlsPanel.tsx';
 import { Save, Palette, Calendar, MapPin, CheckCircle2, TicketCheck, ShieldCheck, Users, Star, QrCode, Sparkles, Paintbrush, LayoutTemplate, Type, Eye, Upload, Image as ImageIcon, Trash2 } from 'lucide-react';
 
 interface EventSettingsViewProps {
@@ -111,6 +112,11 @@ export default function EventSettingsView({ event, onSave }: EventSettingsViewPr
             <div className="space-y-1 md:col-span-2"><label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Event Description</label><textarea name="description" value={formData.description} onChange={handleInputChange} rows={3} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-slate-900 focus:outline-none transition-all" /></div>
           </div>
         </div>
+
+        <RegistrationControlsPanel
+          value={formData}
+          onChange={(patch) => setFormData((prev) => ({ ...prev, ...patch }))}
+        />
 
         <div className="apple-card p-6 rounded-3xl space-y-5">
           <div className="flex items-center gap-2 border-b border-slate-100 pb-3"><div className="w-8 h-8 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-600"><Paintbrush size={15} /></div><div><h3 className="font-extrabold text-slate-800 text-sm">Mini Pass Design Studio</h3><p className="text-[10px] text-slate-400">Customize background, logo, icon, QR size, and ticket shape</p></div></div>
