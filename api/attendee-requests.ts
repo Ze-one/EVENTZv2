@@ -358,9 +358,9 @@ async function clearRegistrations() {
 
   const local = readLocalDb();
   const before = (local.registrationRequests || []).length;
-  local.registrationRequests = (local.registrationRequests || []).filter((item: any) => item.eventId && item.eventId !== 'event-1');
+  local.registrationRequests = [];
   writeLocalDb(local);
-  return { cleared: before - local.registrationRequests.length };
+  return { cleared: before };
 }
 
 async function createRegistration(body: any) {
