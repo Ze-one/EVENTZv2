@@ -8,9 +8,9 @@
   "theme_color": "#0b1f4d",
   "icons": [
     {
-      "src": "/assets/eventz-official-logo.webp",
-      "sizes": "1200x600",
-      "type": "image/webp",
+      "src": "/assets/eventz-official-logo.png",
+      "sizes": "1663x488",
+      "type": "image/png",
       "purpose": "any"
     }
   ]

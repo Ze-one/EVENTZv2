@@ -14,7 +14,8 @@ interface LogoProps {
   animated?: boolean;
 }
 
-const OFFICIAL_LOGO = '/assets/eventz-official-logo.webp';
+const OFFICIAL_LOGO = '/assets/eventz-official-logo.png';
+const LOGO_ASPECT_RATIO = 1663 / 488;
 
 export default function Logo({
   className = '',
@@ -25,14 +26,14 @@ export default function Logo({
 }: LogoProps) {
   const scale = { sm: 0.72, md: 0.9, lg: 1.15, xl: 1.55 }[size];
   const height = 64 * scale;
-  const width = iconOnly ? height : 238 * scale;
+  const width = iconOnly ? height : height * LOGO_ASPECT_RATIO;
 
   if (iconOnly) {
     return (
       <div
         onClick={onClick}
-        className={`eventz-official-logo-icon relative bg-white overflow-hidden shrink-0 ${onClick ? 'cursor-pointer' : ''} ${animated ? 'animate-soft-pulse' : ''} ${className}`}
-        style={{ width, height, borderRadius: Math.max(10, 17 * scale) }}
+        className={`eventz-official-logo-icon relative overflow-hidden shrink-0 ${onClick ? 'cursor-pointer' : ''} ${animated ? 'animate-soft-pulse' : ''} ${className}`}
+        style={{ width, height }}
         aria-label="EVENTZ"
       >
         <img
@@ -42,7 +43,7 @@ export default function Logo({
           className="absolute h-full max-w-none select-none pointer-events-none"
           style={{
             width: 'auto',
-            left: '-5%',
+            left: 0,
             top: 0
           }}
         />
@@ -52,7 +53,7 @@ export default function Logo({
 
   return (
     <div
-      className={`eventz-official-logo relative overflow-hidden bg-white select-none ${onClick ? 'cursor-pointer' : ''} ${animated ? 'animate-soft-pulse' : ''} ${className}`}
+      className={`eventz-official-logo relative select-none ${onClick ? 'cursor-pointer' : ''} ${animated ? 'animate-soft-pulse' : ''} ${className}`}
       onClick={onClick}
       aria-label="EVENTZ - manage your event access by ETS.NTECH"
       style={{ width, height }}
@@ -60,12 +61,7 @@ export default function Logo({
       <img
         src={OFFICIAL_LOGO}
         alt="EVENTZ — manage your event access by ETS.NTECH"
-        className="absolute left-0 w-full h-auto max-w-none pointer-events-none"
-        style={{
-          top: '-34%',
-          transform: 'scale(1.02)',
-          transformOrigin: 'center center'
-        }}
+        className="absolute inset-0 w-full h-full object-contain pointer-events-none"
       />
     </div>
   );

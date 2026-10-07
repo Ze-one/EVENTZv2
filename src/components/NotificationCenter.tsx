@@ -46,7 +46,7 @@ function showBrowserNotification(notice: Notice) {
   if (typeof Notification === 'undefined') return;
   if (Notification.permission !== 'granted') return;
   try {
-    new Notification(notice.title, { body: notice.body, tag: notice.id, icon: '/favicon.svg' });
+    new Notification(notice.title, { body: notice.body, tag: notice.id, icon: '/assets/eventz-official-logo.png' });
   } catch {}
 }
 

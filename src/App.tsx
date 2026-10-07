@@ -608,8 +608,8 @@ export default function App() {
   // Loading Splash Screen
   if (!eventDetails) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-6 text-white font-sans">
-        <Logo size="lg" variant="light" className="animate-pulse" />
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center gap-6 text-slate-900 font-sans">
+        <Logo size="lg" variant="dark" className="animate-pulse" />
         <div className="flex items-center gap-2 text-slate-400 font-mono text-xs">
           <RefreshCw className="animate-spin text-yellow-500" size={14} />
           Initialising secure database node...
