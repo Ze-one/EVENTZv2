@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Bell,
+  CalendarClock,
   Check,
   CheckCircle2,
   Clock3,
@@ -19,6 +20,8 @@ import {
   Users,
   X
 } from 'lucide-react';
+import { EventDetails } from '../types.js';
+import RegistrationControlsPanel from './RegistrationControlsPanel.tsx';
 
 type Registration = {
   id: string;
@@ -48,12 +51,27 @@ type Registration = {
 
 interface Props {
   adminName: string;
+  event: EventDetails;
+  onSaveEvent: (updatedEvent: EventDetails) => Promise<EventDetails | void>;
   onChanged?: () => void;
 }
 
-export default function RegistrationManagementView({ adminName, onChanged }: Props) {
+const registrationPolicySnapshot = (event: EventDetails) => ({
+  registrationEnabled: event.registrationEnabled !== false,
+  registrationMode: event.registrationMode || 'public',
+  registrationDeadline: event.registrationDeadline || null,
+  eventCapacity: event.eventCapacity ?? null,
+  waitlistEnabled: event.waitlistEnabled !== false,
+  allowGuests: Boolean(event.allowGuests),
+  maxGuestsPerRegistration: Number(event.maxGuestsPerRegistration ?? 1),
+  customRegistrationFields: Array.isArray(event.customRegistrationFields) ? event.customRegistrationFields : []
+});
+
+export default function RegistrationManagementView({ adminName, event, onSaveEvent, onChanged }: Props) {
   const [items, setItems] = useState<Registration[]>([]);
+  const [registrationDraft, setRegistrationDraft] = useState<EventDetails>({ ...event });
   const [loading, setLoading] = useState(true);
+  const [savingRegistrationSettings, setSavingRegistrationSettings] = useState(false);
   const [actingId, setActingId] = useState('');
   const [filter, setFilter] = useState<'all' | Registration['status']>('pending');
   const [search, setSearch] = useState('');
@@ -68,6 +86,10 @@ export default function RegistrationManagementView({ adminName, onChanged }: Pro
   );
 
   const registrationUrl = typeof window === 'undefined' ? '/register' : `${window.location.origin}/register`;
+
+  useEffect(() => {
+    setRegistrationDraft({ ...event });
+  }, [event.id, event.updatedAt]);
 
   const load = async (silent = false) => {
     if (!silent) setLoading(true);
@@ -125,6 +147,53 @@ export default function RegistrationManagementView({ adminName, onChanged }: Pro
     waitlisted: items.filter((i) => i.status === 'waitlisted').length,
     rejected: items.filter((i) => i.status === 'rejected').length
   }), [items]);
+
+  const registrationSettingsDirty = useMemo(
+    () => JSON.stringify(registrationPolicySnapshot(registrationDraft)) !== JSON.stringify(registrationPolicySnapshot(event)),
+    [registrationDraft, event]
+  );
+
+  const registrationStatus = useMemo(() => {
+    if (registrationDraft.registrationEnabled === false) {
+      return {
+        label: 'Closed',
+        tone: 'bg-rose-50 text-rose-700 border-rose-200',
+        description: 'The public portal is not accepting new submissions.'
+      };
+    }
+    if (registrationDraft.registrationDeadline && new Date(registrationDraft.registrationDeadline).getTime() < Date.now()) {
+      return {
+        label: 'Deadline passed',
+        tone: 'bg-amber-50 text-amber-700 border-amber-200',
+        description: 'The public portal is visible, but the saved deadline blocks new submissions.'
+      };
+    }
+    if (registrationDraft.registrationMode === 'invitation_only') {
+      return {
+        label: 'Invitation only',
+        tone: 'bg-blue-50 text-blue-700 border-blue-200',
+        description: 'A valid private invitation link is required before someone can submit.'
+      };
+    }
+    return {
+      label: 'Open',
+      tone: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      description: 'Anyone with the registration URL can submit while capacity rules allow it.'
+    };
+  }, [registrationDraft.registrationEnabled, registrationDraft.registrationDeadline, registrationDraft.registrationMode]);
+
+  const saveRegistrationSettings = async (nextEvent: EventDetails) => {
+    setSavingRegistrationSettings(true);
+    try {
+      const saved = await onSaveEvent(nextEvent);
+      const resolvedEvent = saved || nextEvent;
+      setRegistrationDraft({ ...resolvedEvent });
+      setCustomFieldDefinitions(Array.isArray(resolvedEvent.customRegistrationFields) ? resolvedEvent.customRegistrationFields : []);
+      onChanged?.();
+    } finally {
+      setSavingRegistrationSettings(false);
+    }
+  };
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -280,9 +349,9 @@ export default function RegistrationManagementView({ adminName, onChanged }: Pro
             <div className="inline-flex items-center gap-2 rounded-full bg-slate-950 text-white px-3 py-1.5 text-[9px] uppercase tracking-[0.2em] font-black">
               <Sparkles size={11} className="text-yellow-400" /> Registration command desk
             </div>
-            <h2 className="text-2xl font-black text-slate-950 mt-3 tracking-tight">Registration Requests</h2>
+            <h2 className="text-2xl font-black text-slate-950 mt-3 tracking-tight">Registration Command Centre</h2>
             <p className="text-xs text-slate-500 mt-1.5 max-w-2xl leading-relaxed">
-              Review incoming registrations, inspect complete registrant information, and control when a real participant pass is created.
+              Manage registration policy, invitations, public form questions, category capacity, RSVP and request review from one place.
             </p>
           </div>
 
@@ -351,6 +420,23 @@ export default function RegistrationManagementView({ adminName, onChanged }: Pro
             Share this URL by WhatsApp, email, SMS, social media, or any other platform. The Share button uses your device's native share sheet where supported.
           </p>
         </div>
+
+        <div className="mt-4 grid lg:grid-cols-[1fr_auto] gap-3 items-stretch">
+          <div className={`rounded-2xl border px-4 py-3 ${registrationStatus.tone}`}>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[9px] uppercase font-black tracking-wider">Live registration state</span>
+              <span className="rounded-full bg-white/70 px-2.5 py-1 text-[9px] font-black uppercase">{registrationStatus.label}</span>
+              {registrationSettingsDirty && <span className="rounded-full bg-slate-950 text-white px-2.5 py-1 text-[9px] font-black uppercase">Unsaved changes</span>}
+            </div>
+            <p className="text-xs font-bold mt-2 leading-relaxed">{registrationStatus.description}</p>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 gap-2">
+            <PolicyChip label="Deadline" value={registrationDraft.registrationDeadline ? new Date(registrationDraft.registrationDeadline).toLocaleString() : 'No deadline'} />
+            <PolicyChip label="Capacity" value={registrationDraft.eventCapacity ? `${registrationDraft.eventCapacity} seats` : 'Unlimited'} />
+            <PolicyChip label="Waitlist" value={registrationDraft.waitlistEnabled === false ? 'Off' : 'On'} />
+            <PolicyChip label="Guests" value={registrationDraft.allowGuests ? `Up to ${registrationDraft.maxGuestsPerRegistration ?? 1}` : 'Off'} />
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
@@ -377,6 +463,15 @@ export default function RegistrationManagementView({ adminName, onChanged }: Pro
       </div>
 
       {message && <div className="rounded-2xl border border-slate-200 bg-white p-3 text-xs font-bold text-slate-700 shadow-sm">{message}</div>}
+
+      <RegistrationControlsPanel
+        value={registrationDraft}
+        onChange={(patch) => setRegistrationDraft((prev) => ({ ...prev, ...patch }))}
+        onSaveSettings={saveRegistrationSettings}
+        settingsDirty={registrationSettingsDirty}
+        savingSettings={savingRegistrationSettings}
+        onChanged={onChanged}
+      />
 
       <div className="bg-white border border-slate-100 rounded-[28px] shadow-[0_18px_50px_rgba(15,23,42,0.05)] overflow-hidden">
         <div className="p-4 border-b border-slate-100">
@@ -635,6 +730,18 @@ export default function RegistrationManagementView({ adminName, onChanged }: Pro
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function PolicyChip({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-100 bg-white/85 px-3 py-3 min-w-[120px]">
+      <div className="flex items-center gap-1.5 text-slate-400">
+        <CalendarClock size={11} />
+        <span className="text-[8px] uppercase font-black tracking-wider">{label}</span>
+      </div>
+      <p className="text-[11px] font-black text-slate-800 mt-1 leading-tight">{value}</p>
     </div>
   );
 }

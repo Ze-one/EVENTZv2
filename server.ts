@@ -343,7 +343,7 @@ app.post('/api/participants/batch', async (req, res) => {
     category: p.category || '',
     status: PassStatus.NOT_USED,
     rsvpToken: makeRsvpToken(),
-    rsvpStatus: 'pending',
+    rsvpStatus: 'pending' as const,
     passCancelledByRsvp: false
   }));
   const created = await db.createParticipantsBatch(batchData);

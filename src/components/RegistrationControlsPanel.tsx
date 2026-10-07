@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  CalendarClock,
   Check,
   Copy,
   KeyRound,
@@ -10,8 +9,7 @@ import {
   Settings2,
   Trash2,
   UserPlus,
-  Users,
-  X
+  Users
 } from 'lucide-react';
 import { EventDetails } from '../types.js';
 
@@ -39,6 +37,10 @@ type Invitation = {
 interface Props {
   value: EventDetails;
   onChange: (patch: Partial<EventDetails>) => void;
+  onSaveSettings?: (value: EventDetails) => Promise<void>;
+  settingsDirty?: boolean;
+  savingSettings?: boolean;
+  onChanged?: () => void;
 }
 
 const toLocalDateTime = (value?: string | null) => {
@@ -50,7 +52,7 @@ const toLocalDateTime = (value?: string | null) => {
   return local.toISOString().slice(0, 16);
 };
 
-export default function RegistrationControlsPanel({ value, onChange }: Props) {
+export default function RegistrationControlsPanel({ value, onChange, onSaveSettings, settingsDirty = true, savingSettings = false, onChanged }: Props) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [participants, setParticipants] = useState<Array<{ category?: string; status?: string }>>([]);
   const [categoryDrafts, setCategoryDrafts] = useState<Record<string, { capacity: string; isPublic: boolean; isActive: boolean }>>({});
@@ -95,7 +97,7 @@ export default function RegistrationControlsPanel({ value, onChange }: Props) {
       });
       setCategoryDrafts(drafts);
     } catch (err: any) {
-      setMessage(err?.message || 'Unable to load registration controls.');
+      setMessage(err?.message || 'Unable to load registration settings.');
     } finally {
       setLoading(false);
     }
@@ -149,11 +151,12 @@ export default function RegistrationControlsPanel({ value, onChange }: Props) {
         })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Unable to save category controls.');
+      if (!res.ok) throw new Error(data.error || 'Unable to save category settings.');
       setCategories((items) => items.map((item) => item.id === category.id ? data.category : item));
-      setMessage(`${category.name} registration controls saved.`);
+      setMessage(`${category.name} registration settings saved.`);
+      onChanged?.();
     } catch (err: any) {
-      setMessage(err?.message || 'Unable to save category controls.');
+      setMessage(err?.message || 'Unable to save category settings.');
     } finally {
       setSavingCategory('');
     }
@@ -178,6 +181,7 @@ export default function RegistrationControlsPanel({ value, onChange }: Props) {
       setInvitations((items) => [data.invitation, ...items]);
       setInviteForm({ label: 'Private invitation', categoryId: '', maxUses: '1', expiresAt: '' });
       setMessage('Invitation link created.');
+      onChanged?.();
     } catch (err: any) {
       setMessage(err?.message || 'Unable to create invitation.');
     }
@@ -192,6 +196,7 @@ export default function RegistrationControlsPanel({ value, onChange }: Props) {
       if (!res.ok) throw new Error(data.error || 'Unable to delete invitation.');
       setInvitations((items) => items.filter((item) => item.id !== id));
       setMessage('Invitation deleted.');
+      onChanged?.();
     } catch (err: any) {
       setMessage(err?.message || 'Unable to delete invitation.');
     }
@@ -231,6 +236,17 @@ export default function RegistrationControlsPanel({ value, onChange }: Props) {
     return { label: 'Open', className: 'bg-emerald-50 text-emerald-700 border-emerald-100' };
   }, [value.registrationEnabled, value.registrationDeadline, value.registrationMode]);
 
+  const saveRegistrationSettings = async () => {
+    if (!onSaveSettings) return;
+    setMessage('');
+    try {
+      await onSaveSettings(value);
+      setMessage('Registration settings saved. The public registration portal now follows these rules.');
+    } catch (err: any) {
+      setMessage(err?.message || 'Unable to save registration settings.');
+    }
+  };
+
   return (
     <div className="apple-card p-6 rounded-3xl space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
@@ -239,13 +255,25 @@ export default function RegistrationControlsPanel({ value, onChange }: Props) {
             <Settings2 size={16} />
           </div>
           <div>
-            <h3 className="font-extrabold text-slate-800 text-sm">Registration Controls</h3>
-            <p className="text-[10px] text-slate-400">Control who can register, when registration closes, and how capacity is enforced.</p>
+            <h3 className="font-extrabold text-slate-800 text-sm">Registration Settings</h3>
+            <p className="text-[10px] text-slate-400">One source of truth for the public portal, capacity, guests, form fields and invitations.</p>
           </div>
         </div>
-        <span className={`px-3 py-1.5 rounded-full border text-[9px] font-black uppercase tracking-wider ${registrationStatus.className}`}>
-          {registrationStatus.label}
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`px-3 py-1.5 rounded-full border text-[9px] font-black uppercase tracking-wider ${registrationStatus.className}`}>
+            {registrationStatus.label}
+          </span>
+          {onSaveSettings && (
+            <button
+              type="button"
+              onClick={saveRegistrationSettings}
+              disabled={savingSettings || !settingsDirty}
+              className="px-3 py-2 rounded-xl bg-[#0b1f4d] text-white text-[10px] font-black flex items-center gap-2 disabled:opacity-45 disabled:cursor-not-allowed"
+            >
+              <Save size={12} /> {savingSettings ? 'Saving...' : settingsDirty ? 'Save Registration Settings' : 'Settings Saved'}
+            </button>
+          )}
+        </div>
       </div>
 
       {message && <div className="rounded-2xl bg-slate-50 border border-slate-100 p-3 text-[11px] font-bold text-slate-700">{message}</div>}

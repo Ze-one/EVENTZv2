@@ -293,6 +293,7 @@ export default function App() {
       if (res.ok) {
         const saved = await res.json();
         setEventDetails(saved);
+        return saved;
       }
     } catch (err) {
       console.error('Error saving event details:', err);
@@ -1261,6 +1262,8 @@ export default function App() {
         {currentPage === 'registrations' && currentUser.role === UserRole.ADMIN && (
           <RegistrationManagementView
             adminName={currentUser.name}
+            event={eventDetails}
+            onSaveEvent={handleSaveEventSettings}
             onChanged={fetchAllData}
           />
         )}

@@ -127,6 +127,12 @@ export interface ScanLog {
   scannedBy: string;
   deviceInfo: string;
   ipAddress: string;
+  direction?: 'entry' | 'exit';
+  offline?: boolean;
+  syncId?: string;
+  riskLevel?: 'low' | 'medium' | 'high' | null;
+  riskReason?: string | null;
+  qrVerified?: boolean;
   createdAt: string;
   participantName?: string;
 }
