@@ -6,7 +6,7 @@
 
 This app manages event participants, generates QR-code entrance passes, emails passes directly to participants, and verifies passes at the gate.
 
-View your app in AI Studio: https://ai.studio/apps/086b7d3f-2e54-4972-b30c-e4f69ee0ef2c
+
 
 ## Run Locally
 
