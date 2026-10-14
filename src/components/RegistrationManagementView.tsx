@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Bell,
   CalendarClock,
   Check,
   CheckCircle2,
@@ -14,7 +13,6 @@ import {
   Search,
   Share2,
   Sparkles,
-  Trash2,
   UserCheck,
   UserX,
   Users,
@@ -30,7 +28,7 @@ type Registration = {
   phone: string;
   organization: string;
   categoryName: string;
-  rsvpStatus: 'yes' | 'maybe' | 'declined';
+  rsvpStatus?: 'yes' | 'maybe' | 'declined' | 'pending';
   status: 'pending' | 'approved' | 'rejected' | 'waitlisted';
   notes?: string;
   participantId?: string | null;
@@ -38,7 +36,6 @@ type Registration = {
   reviewedAt?: string | null;
   reviewedBy?: string | null;
   rejectionReason?: string | null;
-  rsvpUpdatedAt?: string | null;
   approvalEmailStatus?: string | null;
   approvalEmailSentAt?: string | null;
   approvalEmailError?: string | null;
@@ -78,12 +75,6 @@ export default function RegistrationManagementView({ adminName, event, onSaveEve
   const [message, setMessage] = useState('');
   const [selected, setSelected] = useState<Registration | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
-  const [showClearConfirm, setShowClearConfirm] = useState(false);
-  const [clearing, setClearing] = useState(false);
-  const [customFieldDefinitions, setCustomFieldDefinitions] = useState<Array<{ id: string; label: string }>>([]);
-  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(
-    typeof Notification === 'undefined' ? 'unsupported' : Notification.permission
-  );
 
   const registrationUrl = typeof window === 'undefined' ? '/register' : `${window.location.origin}/register`;
 
@@ -114,16 +105,6 @@ export default function RegistrationManagementView({ adminName, event, onSaveEve
     load();
     const timer = window.setInterval(() => load(true), 10000);
     return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    fetch('/api/attendee-requests?mode=registration-config', { cache: 'no-store' })
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) return;
-        setCustomFieldDefinitions(Array.isArray(data.customRegistrationFields) ? data.customRegistrationFields : []);
-      })
-      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -182,13 +163,19 @@ export default function RegistrationManagementView({ adminName, event, onSaveEve
     };
   }, [registrationDraft.registrationEnabled, registrationDraft.registrationDeadline, registrationDraft.registrationMode]);
 
+  const approvedSlots = useMemo(
+    () => items
+      .filter((item) => item.status === 'approved')
+      .reduce((total, item) => total + Number(item.requestedSlots || 1), 0),
+    [items]
+  );
+
   const saveRegistrationSettings = async (nextEvent: EventDetails) => {
     setSavingRegistrationSettings(true);
     try {
       const saved = await onSaveEvent(nextEvent);
       const resolvedEvent = saved || nextEvent;
       setRegistrationDraft({ ...resolvedEvent });
-      setCustomFieldDefinitions(Array.isArray(resolvedEvent.customRegistrationFields) ? resolvedEvent.customRegistrationFields : []);
       onChanged?.();
     } finally {
       setSavingRegistrationSettings(false);
@@ -288,42 +275,6 @@ export default function RegistrationManagementView({ adminName, event, onSaveEve
     await copyRegistrationLink();
   };
 
-  const enableNotifications = async () => {
-    if (typeof Notification === 'undefined') {
-      setNotificationPermission('unsupported');
-      return;
-    }
-    const permission = await Notification.requestPermission();
-    setNotificationPermission(permission);
-    if (permission === 'granted') {
-      new Notification('EVENTZ notifications enabled', {
-        body: 'You will receive a desktop notification when a new registration arrives while EVENTZ is open.'
-      });
-    }
-  };
-
-  const clearRegistrationList = async () => {
-    setClearing(true);
-    setMessage('');
-    try {
-      const res = await fetch('/api/attendee-requests?mode=registrations', { method: 'DELETE' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Could not clear registration history.');
-      setSelected(null);
-      setItems([]);
-      setFilter('pending');
-      setSearch('');
-      setShowClearConfirm(false);
-      setMessage(`Registration list cleared (${data.cleared || 0} records). Existing participant passes were preserved.`);
-      onChanged?.();
-    } catch (err: any) {
-      setMessage(err?.message || 'Could not clear registration history.');
-    } finally {
-      setClearing(false);
-    }
-  };
-
-
   return (
     <div className="space-y-6 text-left">
       <style>{`
@@ -351,24 +302,11 @@ export default function RegistrationManagementView({ adminName, event, onSaveEve
             </div>
             <h2 className="text-2xl font-black text-slate-950 mt-3 tracking-tight">Registration Command Centre</h2>
             <p className="text-xs text-slate-500 mt-1.5 max-w-2xl leading-relaxed">
-              Manage registration policy, invitations, public form questions, category capacity, RSVP and request review from one place.
+              Set the public registration rules, share the event portal, and move requests through Pending, Approved, Rejected or Waitlisted.
             </p>
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <button
-              onClick={enableNotifications}
-              className={`px-4 py-2.5 rounded-xl border text-xs font-black flex items-center gap-2 transition-all duration-300 hover:-translate-y-0.5 ${
-                notificationPermission === 'granted'
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                  : 'border-slate-200 bg-white text-slate-700 hover:shadow-md'
-              }`}
-              title="Enable desktop notifications for new registrations"
-            >
-              <Bell size={14} />
-              {notificationPermission === 'granted' ? 'Notifications On' : 'Enable Notifications'}
-            </button>
-
             <button
               onClick={copyRegistrationLink}
               className="px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-black text-slate-700 hover:bg-slate-50 hover:-translate-y-0.5 hover:shadow-md transition-all duration-300 flex items-center gap-2"
@@ -392,15 +330,6 @@ export default function RegistrationManagementView({ adminName, event, onSaveEve
             </button>
 
             <button
-              onClick={() => setShowClearConfirm(true)}
-              disabled={items.length === 0 || clearing}
-              className="px-4 py-2.5 rounded-xl border border-rose-200 bg-rose-50 text-xs font-black text-rose-700 hover:bg-rose-100 disabled:opacity-40 transition-all flex items-center gap-2"
-              title="Clear registration request history"
-            >
-              <Trash2 size={14} /> Clear List
-            </button>
-
-            <button
               onClick={() => load()}
               disabled={loading}
               className="p-2.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all disabled:opacity-50"
@@ -417,7 +346,7 @@ export default function RegistrationManagementView({ adminName, event, onSaveEve
             <p className="text-xs font-mono font-bold text-slate-700 mt-1 break-all">{registrationUrl}</p>
           </div>
           <p className="text-[10px] text-slate-400 max-w-sm leading-relaxed">
-            Share this URL by WhatsApp, email, SMS, social media, or any other platform. The Share button uses your device's native share sheet where supported.
+            Use this one URL for public/self-registration. The setup below controls whether it is open, private, full, or waitlisting new requests.
           </p>
         </div>
 
@@ -430,11 +359,12 @@ export default function RegistrationManagementView({ adminName, event, onSaveEve
             </div>
             <p className="text-xs font-bold mt-2 leading-relaxed">{registrationStatus.description}</p>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2">
             <PolicyChip label="Deadline" value={registrationDraft.registrationDeadline ? new Date(registrationDraft.registrationDeadline).toLocaleString() : 'No deadline'} />
-            <PolicyChip label="Capacity" value={registrationDraft.eventCapacity ? `${registrationDraft.eventCapacity} seats` : 'Unlimited'} />
+            <PolicyChip label="Capacity" value={registrationDraft.eventCapacity ? `${approvedSlots}/${registrationDraft.eventCapacity} seats` : `${approvedSlots} used`} />
             <PolicyChip label="Waitlist" value={registrationDraft.waitlistEnabled === false ? 'Off' : 'On'} />
             <PolicyChip label="Guests" value={registrationDraft.allowGuests ? `Up to ${registrationDraft.maxGuestsPerRegistration ?? 1}` : 'Off'} />
+            <PolicyChip label="Fields" value={`${Array.isArray(registrationDraft.customRegistrationFields) ? registrationDraft.customRegistrationFields.length : 0} custom`} />
           </div>
         </div>
       </div>
@@ -470,6 +400,7 @@ export default function RegistrationManagementView({ adminName, event, onSaveEve
         onSaveSettings={saveRegistrationSettings}
         settingsDirty={registrationSettingsDirty}
         savingSettings={savingRegistrationSettings}
+        registrations={items}
         onChanged={onChanged}
       />
 
@@ -487,19 +418,18 @@ export default function RegistrationManagementView({ adminName, event, onSaveEve
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[980px] text-xs">
+          <table className="w-full min-w-[860px] text-xs">
             <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider">
               <tr>
                 <th className="py-3 px-4 text-left">Registrant</th>
                 <th className="py-3 px-4 text-left">Category</th>
-                <th className="py-3 px-4 text-left">RSVP</th>
                 <th className="py-3 px-4 text-left">Submitted</th>
                 <th className="py-3 px-4 text-left">Status</th>
                 <th className="py-3 px-4 text-right">Review</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {!loading && visible.length === 0 && <tr><td colSpan={6} className="py-16 text-center text-slate-400">No registration requests match this view.</td></tr>}
+              {!loading && visible.length === 0 && <tr><td colSpan={5} className="py-16 text-center text-slate-400">No registration requests match this view.</td></tr>}
               {visible.map((item) => (
                 <tr
                   key={item.id}
@@ -514,15 +444,6 @@ export default function RegistrationManagementView({ adminName, event, onSaveEve
                     </div>
                   </td>
                   <td className="py-4 px-4"><span className="font-black text-slate-700 bg-slate-100 px-2 py-1 rounded-full">{item.categoryName || 'Attendees'}</span></td>
-                  <td className="py-4 px-4">
-                    {item.rsvpStatus === 'yes' ? (
-                      <span className="inline-flex items-center gap-1 text-emerald-700 font-bold"><CheckCircle2 size={13} /> Attending</span>
-                    ) : item.rsvpStatus === 'declined' ? (
-                      <span className="inline-flex items-center gap-1 text-rose-700 font-bold"><UserX size={13} /> Declined</span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-amber-700 font-bold"><Clock3 size={13} /> Maybe</span>
-                    )}
-                  </td>
                   <td className="py-4 px-4 text-slate-500">{new Date(item.submittedAt).toLocaleString()}</td>
                   <td className="py-4 px-4">
                     <span className={`px-2.5 py-1 rounded-full border text-[9px] uppercase font-black ${statusClass(item.status)}`}>{item.status}</span>
@@ -550,47 +471,6 @@ export default function RegistrationManagementView({ adminName, event, onSaveEve
         <Users size={16} className="text-yellow-400 shrink-0 mt-0.5" />
         <p>Click any registrant row to open the full registration card. Approving creates the participant and pass; waitlisted and rejected requests do not consume participant passes.</p>
       </div>
-
-      {showClearConfirm && (
-        <div
-          className="eventz-overlay fixed inset-0 z-[130] bg-slate-950/45 backdrop-blur-xl flex items-center justify-center p-4"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget && !clearing) setShowClearConfirm(false);
-          }}
-        >
-          <div className="eventz-modal w-full max-w-md rounded-[30px] bg-white/95 border border-white shadow-2xl p-6">
-            <div className="w-11 h-11 rounded-2xl bg-rose-50 border border-rose-100 text-rose-600 flex items-center justify-center">
-              <Trash2 size={18} />
-            </div>
-            <h3 className="text-lg font-black text-slate-950 mt-4">Clear registration list?</h3>
-            <p className="text-xs text-slate-500 leading-relaxed mt-2">
-              This deletes the registration-request history for the current event. Approved participants and their generated passes remain in Manage Passes.
-            </p>
-            <div className="mt-5 rounded-2xl bg-amber-50 border border-amber-100 p-3 text-[10px] text-amber-800 font-semibold">
-              {items.length} registration record{items.length === 1 ? '' : 's'} will be removed from this list.
-            </div>
-            <div className="grid grid-cols-2 gap-2 mt-5">
-              <button
-                type="button"
-                disabled={clearing}
-                onClick={() => setShowClearConfirm(false)}
-                className="py-3 rounded-xl border border-slate-200 bg-white text-slate-700 text-xs font-black hover:bg-slate-50 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={clearing}
-                onClick={clearRegistrationList}
-                className="py-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {clearing ? <RefreshCw size={14} className="animate-spin" /> : <Trash2 size={14} />}
-                {clearing ? 'Clearing...' : 'Clear List'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {selected && (
         <div
@@ -622,14 +502,7 @@ export default function RegistrationManagementView({ adminName, event, onSaveEve
                 <InfoCard icon={<MapPin size={15} />} label="Category / access request" value={selected.categoryName || 'Attendees'} />
               </div>
 
-              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
-                  <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">RSVP</p>
-                  <p className={`text-sm font-black mt-2 ${selected.rsvpStatus === 'declined' ? 'text-rose-700' : 'text-slate-900'}`}>
-                    {selected.rsvpStatus === 'yes' ? 'Attending' : selected.rsvpStatus === 'declined' ? 'Declined' : 'Maybe / undecided'}
-                  </p>
-                  {selected.rsvpUpdatedAt && <p className="text-[9px] text-slate-400 mt-1">{new Date(selected.rsvpUpdatedAt).toLocaleString()}</p>}
-                </div>
+              <div className="grid sm:grid-cols-3 gap-3">
                 <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
                   <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Approval email</p>
                   <p className={`text-sm font-black mt-2 ${selected.approvalEmailStatus === 'failed' ? 'text-rose-700' : selected.approvalEmailStatus === 'sent' ? 'text-emerald-700' : selected.approvalEmailStatus === 'queued' ? 'text-blue-700' : 'text-slate-900'}`}>
@@ -647,6 +520,23 @@ export default function RegistrationManagementView({ adminName, event, onSaveEve
                 </div>
               </div>
 
+              <div className="grid sm:grid-cols-3 gap-3">
+                <div className="rounded-2xl border border-slate-100 bg-white p-4">
+                  <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">RSVP</p>
+                  <p className={`text-sm font-black mt-2 ${selected.rsvpStatus === 'declined' ? 'text-rose-700' : selected.rsvpStatus === 'maybe' ? 'text-amber-700' : 'text-slate-900'}`}>
+                    {selected.rsvpStatus === 'declined' ? 'Declined' : selected.rsvpStatus === 'maybe' ? 'Maybe / undecided' : selected.rsvpStatus === 'yes' ? 'Attending' : 'Pending'}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-slate-100 bg-white p-4">
+                  <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Registration source</p>
+                  <p className="text-sm font-black text-slate-900 mt-2">{selected.source === 'invitation' ? 'Private invitation' : 'Public portal'}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-100 bg-white p-4">
+                  <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Requested passes</p>
+                  <p className="text-sm font-black text-slate-900 mt-2">{selected.requestedSlots || 1}</p>
+                </div>
+              </div>
+
               {selected.approvalEmailError && (
                 <div className="rounded-2xl bg-rose-50 border border-rose-100 p-4">
                   <p className="text-[9px] uppercase font-black tracking-wider text-rose-500">Approval email delivery issue</p>
@@ -659,20 +549,29 @@ export default function RegistrationManagementView({ adminName, event, onSaveEve
                 <p className="text-sm text-slate-700 leading-relaxed mt-2 whitespace-pre-wrap">{selected.notes || 'No additional information was submitted.'}</p>
               </div>
 
-              <div className="grid sm:grid-cols-3 gap-3">
-                <div className="rounded-2xl border border-slate-100 bg-white p-4">
-                  <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Registration source</p>
-                  <p className="text-sm font-black text-slate-900 mt-2">{selected.source === 'invitation' ? 'Private invitation' : 'Public portal'}</p>
-                </div>
-                <div className="rounded-2xl border border-slate-100 bg-white p-4">
-                  <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Requested passes</p>
-                  <p className="text-sm font-black text-slate-900 mt-2">{selected.requestedSlots || 1}</p>
-                </div>
+              <div className="grid sm:grid-cols-1 gap-3">
                 <div className="rounded-2xl border border-slate-100 bg-white p-4">
                   <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Guests</p>
                   <p className="text-sm font-black text-slate-900 mt-2">{selected.guests?.length || 0}</p>
                 </div>
               </div>
+
+              {selected.customAnswers && Object.keys(selected.customAnswers).length > 0 && (
+                <div className="rounded-2xl border border-slate-100 bg-white p-5">
+                  <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Custom registration answers</p>
+                  <div className="mt-3 grid sm:grid-cols-2 gap-3">
+                    {Object.entries(selected.customAnswers).map(([fieldId, answer]) => {
+                      const definition = registrationDraft.customRegistrationFields?.find((field) => field.id === fieldId);
+                      return (
+                        <div key={fieldId} className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+                          <p className="text-[9px] font-black uppercase tracking-wider text-slate-400">{definition?.label || fieldId}</p>
+                          <p className="text-xs font-bold text-slate-800 mt-1 whitespace-pre-wrap">{typeof answer === 'boolean' ? (answer ? 'Yes' : 'No') : String(answer || '-')}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {Boolean(selected.guests?.length) && (
                 <div className="rounded-2xl border border-slate-100 bg-[#f7f8fb] p-5">
@@ -687,23 +586,6 @@ export default function RegistrationManagementView({ adminName, event, onSaveEve
                         <span className="text-[9px] font-black uppercase text-slate-400">Guest {index + 1}</span>
                       </div>
                     ))}
-                  </div>
-                </div>
-              )}
-
-              {selected.customAnswers && Object.keys(selected.customAnswers).length > 0 && (
-                <div className="rounded-2xl border border-slate-100 bg-white p-5">
-                  <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Custom registration answers</p>
-                  <div className="mt-3 grid sm:grid-cols-2 gap-3">
-                    {Object.entries(selected.customAnswers).map(([fieldId, value]) => {
-                      const definition = customFieldDefinitions.find((field) => field.id === fieldId);
-                      return (
-                        <div key={fieldId} className="rounded-xl bg-slate-50 border border-slate-100 p-3">
-                          <p className="text-[9px] font-black uppercase tracking-wider text-slate-400">{definition?.label || fieldId}</p>
-                          <p className="text-xs font-bold text-slate-800 mt-1 whitespace-pre-wrap">{typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value || '—')}</p>
-                        </div>
-                      );
-                    })}
                   </div>
                 </div>
               )}

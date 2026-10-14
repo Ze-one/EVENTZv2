@@ -84,21 +84,37 @@ export default function EventSettingsView({ event, onSave }: EventSettingsViewPr
     setFormData(prev => ({ ...prev, ...patch }));
   };
 
-  const persistDashboardMedia = async (patch: Partial<EventDetails>) => {
-    const nextForm = { ...formData, ...patch };
-    setFormData(nextForm);
-    await onSave({
-      ...nextForm,
+  const buildPassDesignerPayload = (nextForm: EventDetails = formData): EventDetails => {
+    const {
+      registrationEnabled,
+      registrationMode,
+      registrationDeadline,
+      eventCapacity,
+      waitlistEnabled,
+      allowGuests,
+      maxGuestsPerRegistration,
+      customRegistrationFields,
+      ...passDesignerFields
+    } = nextForm;
+
+    return {
+      ...passDesignerFields,
       primaryColor: design.primaryColor,
       accentColor: design.accentColor,
       logoPath: JSON.stringify(design)
-    });
+    } as EventDetails;
+  };
+
+  const persistDashboardMedia = async (patch: Partial<EventDetails>) => {
+    const nextForm = { ...formData, ...patch };
+    setFormData(nextForm);
+    await onSave(buildPassDesignerPayload(nextForm));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setSaving(true); setSaveSuccess(false);
     try {
-      await onSave({ ...formData, primaryColor: design.primaryColor, accentColor: design.accentColor, logoPath: JSON.stringify(design) });
+      await onSave(buildPassDesignerPayload());
       setSaveSuccess(true); setTimeout(() => setSaveSuccess(false), 3000);
     } finally { setSaving(false); }
   };

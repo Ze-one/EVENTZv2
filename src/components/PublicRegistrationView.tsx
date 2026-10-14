@@ -25,15 +25,6 @@ type Category = {
   capacity?: number | null;
 };
 
-type CustomField = {
-  id: string;
-  label: string;
-  type: 'text' | 'textarea' | 'select' | 'checkbox';
-  required?: boolean;
-  placeholder?: string;
-  options?: string[];
-};
-
 type RegistrationConfig = {
   registrationEnabled: boolean;
   registrationMode: 'public' | 'invitation_only';
@@ -42,7 +33,14 @@ type RegistrationConfig = {
   waitlistEnabled: boolean;
   allowGuests: boolean;
   maxGuestsPerRegistration: number;
-  customRegistrationFields: CustomField[];
+  customRegistrationFields: Array<{
+    id: string;
+    label: string;
+    type: 'text' | 'textarea' | 'select' | 'checkbox';
+    required?: boolean;
+    placeholder?: string;
+    options?: string[];
+  }>;
   deadlinePassed: boolean;
   invitationRequired: boolean;
   invitationValid: boolean;
@@ -158,6 +156,10 @@ export default function PublicRegistrationView({ event, onBack }: Props) {
     }
   };
 
+  const updateCustomAnswer = (id: string, value: any) => {
+    setCustomAnswers((prev) => ({ ...prev, [id]: value }));
+  };
+
   if (successRef) {
     const waitlisted = successStatus === 'waitlisted';
     return (
@@ -252,9 +254,10 @@ export default function PublicRegistrationView({ event, onBack }: Props) {
             <h2 className="font-black text-sm">How registration works</h2>
             <div className="mt-4 space-y-4">
               {[
-                ['1', 'Submit', 'Provide your details, category, guest information if permitted, and any event-specific questions.'],
-                ['2', 'Review', 'The event team reviews your request against event and category capacity.'],
-                ['3', 'Pass issued', 'Approved registrations become EVENTZ participant passes. If full, your request can be placed on the waitlist.']
+                ['1', 'Submit', 'Provide your details and guest information if guests are enabled.'],
+                ['2', 'Pending review', 'Your request starts as Pending while the event team checks it against event rules.'],
+                ['3', 'Approve or reject', 'Approved requests become EVENTZ participant passes. Rejected requests do not create passes.'],
+                ['4', 'Waitlist if full', 'When capacity is full, eligible requests can be placed on the waitlist instead of over-registering.']
               ].map(([n, title, body]) => (
                 <div key={n} className="flex gap-3">
                   <div className="w-7 h-7 rounded-lg bg-yellow-400 text-slate-950 font-black text-xs flex items-center justify-center shrink-0">{n}</div>
@@ -365,56 +368,67 @@ export default function PublicRegistrationView({ event, onBack }: Props) {
                           <input type="email" value={guest.email} onChange={(e) => updateGuest(index, { email: e.target.value })} placeholder="Email" className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs" />
                           <input value={guest.phone} onChange={(e) => updateGuest(index, { phone: e.target.value })} placeholder="Phone" className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs" />
                         </div>
-                        <p className="text-[9px] text-slate-400 mt-2">If an email is provided, the guest receives their own pass and RSVP link after approval.</p>
+                        <p className="text-[9px] text-slate-400 mt-2">If approved, the guest receives their own event access pass.</p>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
-              {(config?.customRegistrationFields || []).map((field) => (
-                <div key={field.id}>
-                  <label className="text-[10px] uppercase tracking-wider font-black text-slate-500">{field.label}{field.required ? ' *' : ''}</label>
-                  {field.type === 'textarea' ? (
-                    <textarea
-                      required={field.required}
-                      value={String(customAnswers[field.id] || '')}
-                      onChange={(e) => setCustomAnswers((prev) => ({ ...prev, [field.id]: e.target.value }))}
-                      rows={3}
-                      placeholder={field.placeholder || ''}
-                      className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-slate-900 resize-none"
-                    />
-                  ) : field.type === 'select' ? (
-                    <select
-                      required={field.required}
-                      value={String(customAnswers[field.id] || '')}
-                      onChange={(e) => setCustomAnswers((prev) => ({ ...prev, [field.id]: e.target.value }))}
-                      className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-slate-900"
-                    >
-                      <option value="">Select...</option>
-                      {(field.options || []).map((option) => <option key={option} value={option}>{option}</option>)}
-                    </select>
-                  ) : field.type === 'checkbox' ? (
-                    <label className="mt-2 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs font-semibold text-slate-700 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        required={field.required}
-                        checked={Boolean(customAnswers[field.id])}
-                        onChange={(e) => setCustomAnswers((prev) => ({ ...prev, [field.id]: e.target.checked }))}
-                      />
-                      {field.placeholder || 'Yes'}
-                    </label>
-                  ) : (
-                    <input
-                      required={field.required}
-                      value={String(customAnswers[field.id] || '')}
-                      onChange={(e) => setCustomAnswers((prev) => ({ ...prev, [field.id]: e.target.value }))}
-                      placeholder={field.placeholder || ''}
-                      className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-slate-900"
-                    />
-                  )}
+              {Boolean(config?.customRegistrationFields?.length) && (
+                <div className="rounded-2xl border border-slate-100 bg-[#f7f8fb] p-4 space-y-4">
+                  <div>
+                    <p className="text-xs font-black text-slate-800">Additional questions</p>
+                    <p className="text-[10px] text-slate-500 mt-1">These questions were added by the event team for registration review.</p>
+                  </div>
+                  {config!.customRegistrationFields.map((field) => (
+                    <div key={field.id}>
+                      <label className="text-[10px] uppercase tracking-wider font-black text-slate-500">
+                        {field.label}{field.required ? ' *' : ''}
+                      </label>
+                      {field.type === 'textarea' ? (
+                        <textarea
+                          required={field.required}
+                          rows={3}
+                          value={customAnswers[field.id] || ''}
+                          onChange={(e) => updateCustomAnswer(field.id, e.target.value)}
+                          className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-slate-900 resize-none"
+                          placeholder={field.placeholder || ''}
+                        />
+                      ) : field.type === 'select' ? (
+                        <select
+                          required={field.required}
+                          value={customAnswers[field.id] || ''}
+                          onChange={(e) => updateCustomAnswer(field.id, e.target.value)}
+                          className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-slate-900"
+                        >
+                          <option value="">Select an option</option>
+                          {(field.options || []).map((option) => <option key={option} value={option}>{option}</option>)}
+                        </select>
+                      ) : field.type === 'checkbox' ? (
+                        <label className="mt-2 flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-3 text-xs font-bold text-slate-700">
+                          <input
+                            type="checkbox"
+                            required={field.required}
+                            checked={Boolean(customAnswers[field.id])}
+                            onChange={(e) => updateCustomAnswer(field.id, e.target.checked)}
+                            className="mt-0.5"
+                          />
+                          <span>{field.placeholder || 'Yes'}</span>
+                        </label>
+                      ) : (
+                        <input
+                          required={field.required}
+                          value={customAnswers[field.id] || ''}
+                          onChange={(e) => updateCustomAnswer(field.id, e.target.value)}
+                          className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:bg-white focus:ring-2 focus:ring-slate-900"
+                          placeholder={field.placeholder || ''}
+                        />
+                      )}
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
 
               <div>
                 <label className="text-[10px] uppercase tracking-wider font-black text-slate-500">Additional note</label>
