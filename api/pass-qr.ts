@@ -1,3 +1,4 @@
+import { currentEventId } from '../src/server/event-scope.js';
 import QRCode from 'qrcode';
 import { db } from '../src/server/db.js';
 import { buildSignedVerifyUrl } from '../src/server/pass-security.js';
@@ -5,12 +6,13 @@ import { buildSignedVerifyUrl } from '../src/server/pass-security.js';
 function getAppOrigin(req: any): string {
   const configured = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL;
   if (configured) return configured.startsWith('http') ? configured.replace(/\/$/, '') : `https://${configured.replace(/\/$/, '')}`;
-  const protocol = req.headers['x-forwarded-proto'] || 'https';
+  const protocol = req.protocol || req.headers['x-forwarded-proto'] || 'https';
   const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
   return `${protocol}://${host}`;
 }
 
 export default async function handler(req: any, res: any) {
+  if (!currentEventId()) { res.status(404).json({ error: 'Use the authenticated event workspace API.' }); return; }
   try {
     const passId = String(req.query?.passId || '').trim().toUpperCase();
     if (!passId) {

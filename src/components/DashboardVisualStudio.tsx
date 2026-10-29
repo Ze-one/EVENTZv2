@@ -1,3 +1,4 @@
+import { workspaceFetch } from '../utils/auth.js';
 import React, { useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import {
@@ -83,7 +84,7 @@ export default function DashboardVisualStudio({ event, onChange, onPersistMedia 
 
     setUploading(true);
     try {
-      const ticketResponse = await fetch('/api/dashboard-media/upload-ticket', {
+      const ticketResponse = await workspaceFetch('/api/dashboard-media/upload-ticket', {
         method: 'POST',
         headers: eventzAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
@@ -109,7 +110,7 @@ export default function DashboardVisualStudio({ event, onChange, onPersistMedia 
       if (storageError) throw new Error(storageError.message || 'Supabase Storage upload failed.');
 
       const mediaType = file.type === 'image/gif' ? 'gif' : file.type.startsWith('video/') ? 'video' : 'image';
-      const activateResponse = await fetch('/api/dashboard-media/activate', {
+      const activateResponse = await workspaceFetch('/api/dashboard-media/activate', {
         method: 'POST',
         headers: eventzAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
@@ -164,7 +165,7 @@ export default function DashboardVisualStudio({ event, onChange, onPersistMedia 
     setError('');
     setMessage('');
     try {
-      const response = await fetch('/api/dashboard-media', {
+      const response = await workspaceFetch('/api/dashboard-media', {
         method: 'DELETE',
         headers: eventzAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ path: event.dashboardMediaPath })

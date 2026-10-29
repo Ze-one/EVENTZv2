@@ -1,27 +1,19 @@
+import { sessionSecret } from './runtime-secrets.js';
 import crypto from 'crypto';
+import { eventScope } from './event-scope.js';
 
 export type EventzSession = {
   v: number;
   userId: string;
   email: string;
-  role: 'admin' | 'gate_officer';
+  role: 'admin' | 'gate_officer' | 'member';
   name: string;
   iat: number;
   exp: number;
 };
 
-function secret() {
-  const value =
-    process.env.EVENTZ_SESSION_SECRET ||
-    process.env.PASS_QR_SIGNING_SECRET ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    '';
-  if (!value) throw new Error('EVENTZ session signing is not configured.');
-  return value;
-}
-
 function sign(body: string) {
-  return crypto.createHmac('sha256', secret()).update(body).digest('base64url');
+  return crypto.createHmac('sha256', sessionSecret()).update(body).digest('base64url');
 }
 
 export function createSessionToken(user: any, lifetimeSeconds = 12 * 60 * 60) {
@@ -54,7 +46,7 @@ export function verifySessionToken(token: string): { valid: boolean; session?: E
     const session = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as EventzSession;
     if (!session?.userId || !session?.role || !session?.exp) return { valid: false, error: 'EVENTZ session is incomplete.' };
     if (session.exp <= Math.floor(Date.now() / 1000)) return { valid: false, error: 'EVENTZ session has expired.' };
-    if (!['admin', 'gate_officer'].includes(session.role)) return { valid: false, error: 'EVENTZ session role is invalid.' };
+    if (!['admin', 'gate_officer', 'member'].includes(session.role)) return { valid: false, error: 'EVENTZ session role is invalid.' };
 
     return { valid: true, session };
   } catch (error: any) {
@@ -68,9 +60,10 @@ export function getBearerToken(req: any) {
   return match?.[1]?.trim() || '';
 }
 
-export function requireSession(req: any, roles: Array<'admin' | 'gate_officer'> = ['admin', 'gate_officer']) {
+export function requireSession(req: any, roles: Array<EventzSession['role']> = ['admin', 'gate_officer', 'member']) {
   const result = verifySessionToken(getBearerToken(req));
   if (!result.valid || !result.session) return { ok: false as const, status: 401, error: result.error || 'Authentication required.' };
-  if (!roles.includes(result.session.role)) return { ok: false as const, status: 403, error: 'This EVENTZ account does not have permission for this operation.' };
+  const effectiveRole = eventScope.getStore()?.role || result.session.role;
+  if (!roles.includes(effectiveRole)) return { ok: false as const, status: 403, error: 'This EVENTZ account does not have permission for this operation.' };
   return { ok: true as const, session: result.session };
 }

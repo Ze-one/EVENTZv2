@@ -1,3 +1,4 @@
+import { workspaceFetch } from './utils/auth.js';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -23,8 +24,8 @@ import {
   CheckCircle2, Menu, X, ArrowLeft, Key, UserCheck, ShieldCheck, Eye, EyeOff, UserX, Trash2, RefreshCw, Sparkles
 } from 'lucide-react';
 
-export default function App() {
-  const [currentUser, setCurrentUser] = useState<Omit<User, 'passwordHash'> | null>(null);
+export default function App({ sessionUser, eventId, onExit }: { sessionUser: Omit<User, 'passwordHash'>; eventId: string; onExit: () => void }) {
+  const [currentUser, setCurrentUser] = useState<Omit<User, 'passwordHash'> | null>(sessionUser);
   const [eventDetails, setEventDetails] = useState<EventDetails | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [scanLogs, setScanLogs] = useState<ScanLog[]>([]);
@@ -34,7 +35,7 @@ export default function App() {
   const registrationFeedReadyRef = useRef(false);
   
   // Navigation
-  const [currentPage, setCurrentPage] = useState<string>('dashboard');
+  const [currentPage, setCurrentPage] = useState<string>(sessionUser.role === UserRole.GATE_OFFICER ? 'scanner' : 'dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [rsvpToken, setRsvpToken] = useState('');
 
@@ -84,28 +85,28 @@ export default function App() {
   const fetchAllData = async () => {
     try {
       // 1. Event
-      const resEv = await fetch('/api/event');
+      const resEv = await workspaceFetch('/api/event');
       if (resEv.ok) {
         const ev = await resEv.json();
         setEventDetails(ev);
       }
 
       // 2. Participants
-      const resPart = await fetch('/api/participants');
+      const resPart = await workspaceFetch('/api/participants');
       if (resPart.ok) {
         const pList = await resPart.json();
         setParticipants(pList);
       }
 
       // 3. Scan logs
-      const resLogs = await fetch('/api/scan-logs');
+      const resLogs = await workspaceFetch('/api/scan-logs');
       if (resLogs.ok) {
         const logsList = await resLogs.json();
         setScanLogs(logsList);
       }
 
       // 4. Email logs
-      const resEmailLogs = await fetch('/api/email-logs');
+      const resEmailLogs = await workspaceFetch('/api/email-logs');
       if (resEmailLogs.ok) {
         const emailLogsList = await resEmailLogs.json();
         setEmailLogs(emailLogsList);
@@ -117,21 +118,7 @@ export default function App() {
 
   // Mount logic
   useEffect(() => {
-    // Sync session login on load
-    const storedUser = localStorage.getItem('etsn_user');
-    const storedSession = localStorage.getItem(EVENTZ_SESSION_TOKEN_KEY);
-    if (storedUser && storedSession) {
-      try {
-        setCurrentUser(JSON.parse(storedUser));
-      } catch (e) {
-        localStorage.removeItem('etsn_user');
-        localStorage.removeItem(EVENTZ_SESSION_TOKEN_KEY);
-      }
-    } else if (storedUser && !storedSession) {
-      // Sessions created before signed server sessions were introduced must sign in again.
-      localStorage.removeItem('etsn_user');
-    }
-
+    setCurrentUser(sessionUser);
     fetchAllData();
 
     // Direct url scanning verify checker
@@ -189,7 +176,7 @@ export default function App() {
 
     const pollRegistrations = async () => {
       try {
-        const res = await fetch('/api/attendee-requests?mode=registrations', { cache: 'no-store' });
+        const res = await workspaceFetch('/api/attendee-requests?mode=registrations', { cache: 'no-store' });
         if (!res.ok) return;
         const registrations = await res.json();
         if (cancelled || !Array.isArray(registrations)) return;
@@ -242,7 +229,7 @@ export default function App() {
     setLoginLoading(true);
 
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await workspaceFetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: loginEmail, password: loginPassword })
@@ -275,17 +262,18 @@ export default function App() {
     setCurrentUser(null);
     localStorage.removeItem('etsn_user');
     localStorage.removeItem(EVENTZ_SESSION_TOKEN_KEY);
+    window.location.assign('/');
     setCurrentPage('dashboard');
     // Clear URL if we were on a verification route
     if (window.location.pathname.includes('/verify/')) {
-      window.history.pushState({}, '', '/');
+      window.history.replaceState({}, '', `/organizer/${eventId}`);
     }
   };
 
   // API: Save settings
   const handleSaveEventSettings = async (updated: EventDetails) => {
     try {
-      const res = await fetch('/api/event', {
+      const res = await workspaceFetch('/api/event', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updated)
@@ -303,7 +291,7 @@ export default function App() {
   // API: Upload batch participants
   const handleConfirmBatchUpload = async (list: any[]) => {
     try {
-      const res = await fetch('/api/participants/batch', {
+      const res = await workspaceFetch('/api/participants/batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ participants: list })
@@ -322,7 +310,7 @@ export default function App() {
   // API: Add individual participant
   const handleAddParticipant = async (p: { fullName: string; phone: string; email: string; organization: string; category: string }) => {
     try {
-      const res = await fetch('/api/participants', {
+      const res = await workspaceFetch('/api/participants', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(p)
@@ -338,7 +326,7 @@ export default function App() {
   // API: Update single participant state
   const handleUpdateParticipant = async (id: string, updates: Partial<Participant>) => {
     try {
-      const res = await fetch(`/api/participants/${id}`, {
+      const res = await workspaceFetch(`/api/participants/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates)
@@ -354,7 +342,7 @@ export default function App() {
   // API: Delete participant
   const handleDeleteParticipant = async (id: string) => {
     try {
-      const res = await fetch(`/api/participants/${id}`, { method: 'DELETE' });
+      const res = await workspaceFetch(`/api/participants/${id}`, { method: 'DELETE' });
       if (res.ok) {
         await fetchAllData();
         showToast('Participant deleted successfully.', 'success');
@@ -370,7 +358,7 @@ export default function App() {
   // API: Bulk Delete participants
   const handleDeleteParticipants = async (ids: string[]) => {
     try {
-      const res = await fetch('/api/participants/bulk-delete', {
+      const res = await workspaceFetch('/api/participants/bulk-delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids })
@@ -390,7 +378,7 @@ export default function App() {
   // API: Reset single check-in
   const handleResetCheckIn = async (id: string) => {
     try {
-      const res = await fetch(`/api/participants/${id}/reset`, { method: 'POST' });
+      const res = await workspaceFetch(`/api/participants/${id}/reset`, { method: 'POST' });
       if (res.ok) {
         await fetchAllData();
       }
@@ -402,7 +390,7 @@ export default function App() {
   // API: Wipe logs
   const handleClearLogs = async () => {
     try {
-      const res = await fetch('/api/scan-logs/clear', { method: 'POST' });
+      const res = await workspaceFetch('/api/scan-logs/clear', { method: 'POST' });
       if (res.ok) {
         await fetchAllData();
       }
@@ -414,7 +402,7 @@ export default function App() {
   // API: Share pass to participant email
   const handleSendEmail = async (id: string, email?: string, customMessage?: string) => {
     try {
-      const res = await fetch(`/api/participants/${id}/email`, {
+      const res = await workspaceFetch(`/api/participants/${id}/email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, customMessage })
@@ -434,7 +422,7 @@ export default function App() {
   // API: Bulk share passes to participant emails
   const handleSendEmailsBulk = async (ids: string[], customMessage?: string) => {
     try {
-      const res = await fetch('/api/participants/bulk-email', {
+      const res = await workspaceFetch('/api/participants/bulk-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids, customMessage })
@@ -454,7 +442,7 @@ export default function App() {
   // API: Wipe email dispatch logs
   const handleClearEmailLogs = async () => {
     try {
-      const res = await fetch('/api/email-logs/clear', { method: 'POST' });
+      const res = await workspaceFetch('/api/email-logs/clear', { method: 'POST' });
       if (res.ok) {
         await fetchAllData();
         showToast('Email dispatch history cleared.', 'success');
@@ -493,7 +481,7 @@ export default function App() {
       });
       if (parsed.token) params.set('token', parsed.token);
 
-      const res = await fetch(`/api/verify/${encodeURIComponent(passId)}?${params.toString()}`, { cache: 'no-store' });
+      const res = await workspaceFetch(`/api/verify/${encodeURIComponent(passId)}?${params.toString()}`, { cache: 'no-store' });
       const data = await res.json();
       setVerifyResult(data?.status ? data : { status: 'Invalid', error: data?.error || 'Pass verification failed.' });
     } catch (err) {
@@ -528,7 +516,7 @@ export default function App() {
         return;
       }
 
-      const res = await fetch(`/api/verify/${encodeURIComponent(passId)}/claim`, {
+      const res = await workspaceFetch(`/api/verify/${encodeURIComponent(passId)}/claim`, {
         method: 'POST',
         headers: eventzAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
@@ -580,7 +568,7 @@ export default function App() {
     setSelectedScanToken('');
     setSelectedGateDirection('entry');
     setCurrentPage(currentUser?.role === UserRole.GATE_OFFICER ? 'scanner' : 'dashboard');
-    window.history.pushState({}, '', '/');
+    window.history.replaceState({}, '', `/organizer/${eventId}`);
   };
 
   const handlePageChange = (page: string) => {
@@ -588,7 +576,7 @@ export default function App() {
     setMobileMenuOpen(false);
     // Clear verification URL parameter context if navigating away
     if (page !== 'verify') {
-      window.history.pushState({}, '', '/');
+      window.history.replaceState({}, '', `/organizer/${eventId}`);
     }
   };
 
@@ -624,7 +612,7 @@ export default function App() {
       <PublicRegistrationView
         event={eventDetails}
         onBack={() => {
-          window.history.pushState({}, '', '/');
+          window.history.replaceState({}, '', `/organizer/${eventId}`);
           setCurrentPage('dashboard');
         }}
       />
@@ -637,7 +625,7 @@ export default function App() {
       <RsvpResponseView
         token={rsvpToken}
         onStaffLogin={() => {
-          window.history.pushState({}, '', '/');
+          window.history.replaceState({}, '', `/organizer/${eventId}`);
           setRsvpToken('');
           setCurrentPage('dashboard');
         }}
@@ -753,6 +741,8 @@ export default function App() {
   }
 
   return (
+    <>
+      <div className="workspace-return-bar"><button onClick={onExit}><ArrowLeft size={15} /> Back to EVENTZ</button><span>{eventDetails.eventName} <b>Organizer workspace</b></span><a href={`/events/${eventId}/edit`}>Edit event listing</a></div>
     <div className="eventz-shell min-h-screen flex flex-col font-sans text-slate-800">
       
       <AppHeader
@@ -1352,5 +1342,6 @@ export default function App() {
         </div>
       )}
     </div>
+    </>
   );
 }

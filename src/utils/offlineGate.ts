@@ -1,3 +1,4 @@
+import { workspaceFetch } from './auth.js';
 import { eventzAuthHeaders } from './auth.js';
 
 export type GateDirection = 'entry' | 'exit';
@@ -43,7 +44,8 @@ const QUEUE_KEY = 'eventz_offline_gate_queue_v1';
 
 function readJson<T>(key: string, fallback: T): T {
   try {
-    const raw = localStorage.getItem(key);
+    const scope = `${sessionStorage.getItem('eventz_workspace_event') || 'none'}:${JSON.parse(localStorage.getItem('etsn_user') || '{}').id || 'guest'}`;
+    const raw = localStorage.getItem(`${key}:${scope}`);
     return raw ? JSON.parse(raw) as T : fallback;
   } catch {
     return fallback;
@@ -51,7 +53,8 @@ function readJson<T>(key: string, fallback: T): T {
 }
 
 function writeJson(key: string, value: any) {
-  localStorage.setItem(key, JSON.stringify(value));
+  const scope = `${sessionStorage.getItem('eventz_workspace_event') || 'none'}:${JSON.parse(localStorage.getItem('etsn_user') || '{}').id || 'guest'}`;
+  localStorage.setItem(`${key}:${scope}`, JSON.stringify(value));
 }
 
 export function parseEventzScanValue(rawValue: string) {
@@ -108,7 +111,7 @@ export function getOfflineGateStatus() {
 }
 
 export async function refreshOfflineManifest() {
-  const response = await fetch('/api/offline-manifest', { cache: 'no-store', headers: eventzAuthHeaders() });
+  const response = await workspaceFetch('/api/offline-manifest', { cache: 'no-store', headers: eventzAuthHeaders() });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Unable to download offline pass manifest.');
   writeJson(MANIFEST_KEY, data);
@@ -245,7 +248,7 @@ export async function syncOfflineQueue() {
   const queue = getOfflineQueue();
   if (!queue.length) return { processed: 0, accepted: 0, rejected: 0, results: [] };
 
-  const response = await fetch('/api/offline-sync', {
+  const response = await workspaceFetch('/api/offline-sync', {
     method: 'POST',
     headers: eventzAuthHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ transactions: queue })

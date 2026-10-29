@@ -1,3 +1,4 @@
+import { currentEventId } from '../src/server/event-scope.js';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -1064,6 +1065,7 @@ async function applyLegacyRequest(reqItem: LegacyRequest) {
 }
 
 export default async function handler(req: any, res: any) {
+  if (!currentEventId()) { res.status(404).json({ error: 'Use the authenticated event workspace API.' }); return; }
   try {
     const mode = String(req.query?.mode || '');
 

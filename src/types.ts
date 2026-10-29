@@ -5,7 +5,8 @@
 
 export enum UserRole {
   ADMIN = 'admin',
-  GATE_OFFICER = 'gate_officer'
+  GATE_OFFICER = 'gate_officer',
+  MEMBER = 'member'
 }
 
 export enum PassStatus {
@@ -30,11 +31,22 @@ export interface User {
   passwordHash: string;
   profileImage?: string;
   avatarUrl?: string;
+  bio?: string;
+  savedEventIds?: string[];
+  followedOrganizerIds?: string[];
   createdAt: string;
 }
 
 export interface EventDetails {
   id: string;
+  ownerId?: string;
+  publicationStatus?: 'draft' | 'published' | 'cancelled';
+  category?: string;
+  city?: string;
+  coverImage?: string;
+  locationType?: 'in_person' | 'online';
+  timezone?: string;
+  gateOfficerIds?: string[];
   eventName: string;
   eventDate: string;
   eventTime: string;
@@ -82,6 +94,7 @@ export interface EventDetails {
 
 export interface Participant {
   id: string;
+  userId?: string | null;
   eventId: string;
   fullName: string;
   phone: string;

@@ -1,3 +1,4 @@
+import { workspaceFetch } from '../utils/auth.js';
 import React, { useEffect, useState } from 'react';
 import {
   Calendar,
@@ -51,7 +52,7 @@ export default function RsvpResponseView({ token, onStaffLogin }: Props) {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`/api/attendee-requests?mode=rsvp&token=${encodeURIComponent(token)}`, { cache: 'no-store' });
+      const res = await workspaceFetch(`/api/attendee-requests?mode=rsvp&token=${encodeURIComponent(token)}`, { cache: 'no-store' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Unable to load this RSVP.');
       setState(data);
@@ -76,7 +77,7 @@ export default function RsvpResponseView({ token, onStaffLogin }: Props) {
     setError('');
     setMessage('');
     try {
-      const res = await fetch('/api/attendee-requests', {
+      const res = await workspaceFetch('/api/attendee-requests', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ kind: 'rsvp', token, response })

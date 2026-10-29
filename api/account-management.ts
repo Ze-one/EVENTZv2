@@ -1,3 +1,4 @@
+import { currentEventId } from '../src/server/event-scope.js';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -145,6 +146,7 @@ async function deleteGateOfficer(id: string) {
 }
 
 export default async function handler(req: any, res: any) {
+  if (!currentEventId()) { res.status(404).json({ error: 'Use the authenticated event workspace API.' }); return; }
   try {
     if (req.method === 'GET') {
       const users = await getUsers();

@@ -1,3 +1,4 @@
+import { passSecret } from './runtime-secrets.js';
 import crypto from 'crypto';
 
 export type SignedPassPayload = {
@@ -9,25 +10,12 @@ export type SignedPassPayload = {
   issuedAt: number;
 };
 
-function getSigningSecret() {
-  const secret =
-    process.env.PASS_QR_SIGNING_SECRET ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.EVENTZ_LOCAL_SIGNING_KEY ||
-    '';
-
-  if (!secret) {
-    throw new Error('Pass QR signing is not configured. Set PASS_QR_SIGNING_SECRET.');
-  }
-  return secret;
-}
-
 function base64url(value: string | Buffer) {
   return Buffer.from(value).toString('base64url');
 }
 
 function signBody(body: string) {
-  return crypto.createHmac('sha256', getSigningSecret()).update(body).digest('base64url');
+  return crypto.createHmac('sha256', passSecret()).update(body).digest('base64url');
 }
 
 export function createSignedPassToken(participant: any) {

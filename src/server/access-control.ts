@@ -248,8 +248,8 @@ export async function processAccessClaim(params: {
     updates.presenceState = 'outside';
   }
 
-  const updated = await db.updateParticipant(participant.id, updates as any);
-  if (!updated) return { success: false, status: 'Error', error: 'Unable to update participant access state.' };
+  const updated = await db.transitionParticipant({ ...participant }, updates);
+  if (!updated) return { success: false, status: 'Used', error: 'This pass changed during verification. Scan it again to see its current state.' };
 
   const scanLog = await db.addScanLog({
     eventId: participant.eventId || 'event-1',

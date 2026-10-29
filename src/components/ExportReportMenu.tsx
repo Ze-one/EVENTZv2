@@ -1,3 +1,4 @@
+import { workspaceDownload } from '../utils/auth.js';
 import React, { useState } from 'react';
 import { Download, FileSpreadsheet, FileText, Table } from 'lucide-react';
 
@@ -14,7 +15,7 @@ export default function ExportReportMenu({ kind, label, disabled = false, varian
   const [open, setOpen] = useState(false);
 
   const startDownload = (format: 'csv' | 'xlsx' | 'pdf') => {
-    window.open(`/api/export-report?kind=${kind}&format=${format}`, '_blank');
+    workspaceDownload(`/api/export-report?kind=${kind}&format=${format}`).catch(error => window.alert(error.message));
     setOpen(false);
   };
 

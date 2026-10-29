@@ -1,7 +1,9 @@
+import { currentEventId } from '../src/server/event-scope.js';
 import { db } from '../src/server/db.js';
 import { buildRsvpUrl, ensureParticipantRsvpToken, getEmailProviderStatus, isValidEmail, normalizeEmail, sendParticipantPassEmail } from '../src/server/pass-email-utils.js';
 
 export default async function handler(req: any, res: any) {
+  if (!currentEventId()) { res.status(404).json({ error: 'Use the authenticated event workspace API.' }); return; }
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     res.status(405).json({ error: 'Method not allowed' });

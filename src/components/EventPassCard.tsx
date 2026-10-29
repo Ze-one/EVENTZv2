@@ -1,3 +1,4 @@
+import { workspaceFetch } from '../utils/auth.js';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -13,6 +14,10 @@ interface EventPassCardProps {
   participant: Participant;
   event: EventDetails;
   onPrint?: () => void;
+}
+
+function escapePrintText(value: string) {
+  return value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!);
 }
 
 function loadCanvasImage(src: string) {
@@ -95,7 +100,7 @@ export default function EventPassCard({ participant, event, onPrint }: EventPass
           return;
         }
 
-        const response = await fetch(`/api/pass-qr/${encodeURIComponent(participant.passId)}`, { cache: 'no-store' });
+        const response = await workspaceFetch(`/api/pass-qr/${encodeURIComponent(participant.passId)}`, { cache: 'no-store' });
         if (!response.ok) {
           const data = await response.json().catch(() => ({}));
           throw new Error(data.error || 'Secure QR could not be generated.');
@@ -127,7 +132,7 @@ export default function EventPassCard({ participant, event, onPrint }: EventPass
     printWindow.document.write(`
       <html>
         <head>
-          <title>Print EVENTZ Pass - ${participant.fullName}</title>
+          <title>Print EVENTZ Pass - ${escapePrintText(participant.fullName)}</title>
           <script src="https://cdn.tailwindcss.com"></script>
           <style>
             html,body{margin:0;padding:0;background:#fff}

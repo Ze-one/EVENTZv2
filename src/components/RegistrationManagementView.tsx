@@ -1,641 +1,137 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from "react";
 import {
-  CalendarClock,
-  Check,
   CheckCircle2,
-  Clock3,
-  Copy,
   ExternalLink,
-  Mail,
-  MapPin,
-  Phone,
   RefreshCw,
   Search,
-  Share2,
-  Sparkles,
-  UserCheck,
-  UserX,
   Users,
-  X
-} from 'lucide-react';
-import { EventDetails } from '../types.js';
-import RegistrationControlsPanel from './RegistrationControlsPanel.tsx';
+} from "lucide-react";
+import { EventDetails, Participant, PassStatus } from "../types.js";
+import { workspaceFetch } from "../utils/auth.js";
 
-type Registration = {
-  id: string;
-  fullName: string;
-  email: string;
-  phone: string;
-  organization: string;
-  categoryName: string;
-  rsvpStatus?: 'yes' | 'maybe' | 'declined' | 'pending';
-  status: 'pending' | 'approved' | 'rejected' | 'waitlisted';
-  notes?: string;
-  participantId?: string | null;
-  submittedAt: string;
-  reviewedAt?: string | null;
-  reviewedBy?: string | null;
-  rejectionReason?: string | null;
-  approvalEmailStatus?: string | null;
-  approvalEmailSentAt?: string | null;
-  approvalEmailError?: string | null;
-  source?: string;
-  invitationId?: string | null;
-  requestedSlots?: number;
-  guests?: Array<{ fullName: string; email?: string; phone?: string }>;
-  customAnswers?: Record<string, any>;
-};
-
-interface Props {
-  adminName: string;
+export default function RegistrationManagementView({
+  event,
+}: {
   event: EventDetails;
-  onSaveEvent: (updatedEvent: EventDetails) => Promise<EventDetails | void>;
-  onChanged?: () => void;
-}
-
-const registrationPolicySnapshot = (event: EventDetails) => ({
-  registrationEnabled: event.registrationEnabled !== false,
-  registrationMode: event.registrationMode || 'public',
-  registrationDeadline: event.registrationDeadline || null,
-  eventCapacity: event.eventCapacity ?? null,
-  waitlistEnabled: event.waitlistEnabled !== false,
-  allowGuests: Boolean(event.allowGuests),
-  maxGuestsPerRegistration: Number(event.maxGuestsPerRegistration ?? 1),
-  customRegistrationFields: Array.isArray(event.customRegistrationFields) ? event.customRegistrationFields : []
-});
-
-export default function RegistrationManagementView({ adminName, event, onSaveEvent, onChanged }: Props) {
-  const [items, setItems] = useState<Registration[]>([]);
-  const [registrationDraft, setRegistrationDraft] = useState<EventDetails>({ ...event });
+  adminName: string;
+  onSaveEvent: (event: EventDetails) => void;
+  onChanged: () => void;
+}) {
+  const [items, setItems] = useState<Participant[]>([]),
+    [query, setQuery] = useState(""),
+    [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [savingRegistrationSettings, setSavingRegistrationSettings] = useState(false);
-  const [actingId, setActingId] = useState('');
-  const [filter, setFilter] = useState<'all' | Registration['status']>('pending');
-  const [search, setSearch] = useState('');
-  const [message, setMessage] = useState('');
-  const [selected, setSelected] = useState<Registration | null>(null);
-  const [shareCopied, setShareCopied] = useState(false);
-
-  const registrationUrl = typeof window === 'undefined' ? '/register' : `${window.location.origin}/register`;
-
-  useEffect(() => {
-    setRegistrationDraft({ ...event });
-  }, [event.id, event.updatedAt]);
-
-  const load = async (silent = false) => {
-    if (!silent) setLoading(true);
-    if (!silent) setMessage('');
+  const refresh = async () => {
+    setLoading(true);
+    setError("");
     try {
-      const res = await fetch('/api/attendee-requests?mode=registrations', { cache: 'no-store' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Could not load registrations.');
-      setItems(data);
-      if (selected) {
-        const refreshed = data.find((item: Registration) => item.id === selected.id);
-        if (refreshed) setSelected(refreshed);
-      }
-    } catch (err: any) {
-      if (!silent) setMessage(err?.message || 'Could not load registrations.');
+      const response = await workspaceFetch("/api/participants");
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      setItems(data.filter((p: Participant) => p.userId));
+    } catch (error: any) {
+      setError(error.message || "Could not load registrations.");
     } finally {
-      if (!silent) setLoading(false);
+      setLoading(false);
     }
   };
-
   useEffect(() => {
-    load();
-    const timer = window.setInterval(() => load(true), 10000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    if (!selected) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setSelected(null);
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.body.style.overflow = previous;
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [selected]);
-
-  const counts = useMemo(() => ({
-    all: items.length,
-    pending: items.filter((i) => i.status === 'pending').length,
-    approved: items.filter((i) => i.status === 'approved').length,
-    waitlisted: items.filter((i) => i.status === 'waitlisted').length,
-    rejected: items.filter((i) => i.status === 'rejected').length
-  }), [items]);
-
-  const registrationSettingsDirty = useMemo(
-    () => JSON.stringify(registrationPolicySnapshot(registrationDraft)) !== JSON.stringify(registrationPolicySnapshot(event)),
-    [registrationDraft, event]
+    refresh();
+  }, [event.id]);
+  const filtered = items.filter((p) =>
+    `${p.fullName} ${p.email}`.toLowerCase().includes(query.toLowerCase()),
   );
-
-  const registrationStatus = useMemo(() => {
-    if (registrationDraft.registrationEnabled === false) {
-      return {
-        label: 'Closed',
-        tone: 'bg-rose-50 text-rose-700 border-rose-200',
-        description: 'The public portal is not accepting new submissions.'
-      };
-    }
-    if (registrationDraft.registrationDeadline && new Date(registrationDraft.registrationDeadline).getTime() < Date.now()) {
-      return {
-        label: 'Deadline passed',
-        tone: 'bg-amber-50 text-amber-700 border-amber-200',
-        description: 'The public portal is visible, but the saved deadline blocks new submissions.'
-      };
-    }
-    if (registrationDraft.registrationMode === 'invitation_only') {
-      return {
-        label: 'Invitation only',
-        tone: 'bg-blue-50 text-blue-700 border-blue-200',
-        description: 'A valid private invitation link is required before someone can submit.'
-      };
-    }
-    return {
-      label: 'Open',
-      tone: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-      description: 'Anyone with the registration URL can submit while capacity rules allow it.'
-    };
-  }, [registrationDraft.registrationEnabled, registrationDraft.registrationDeadline, registrationDraft.registrationMode]);
-
-  const approvedSlots = useMemo(
-    () => items
-      .filter((item) => item.status === 'approved')
-      .reduce((total, item) => total + Number(item.requestedSlots || 1), 0),
-    [items]
-  );
-
-  const saveRegistrationSettings = async (nextEvent: EventDetails) => {
-    setSavingRegistrationSettings(true);
-    try {
-      const saved = await onSaveEvent(nextEvent);
-      const resolvedEvent = saved || nextEvent;
-      setRegistrationDraft({ ...resolvedEvent });
-      onChanged?.();
-    } finally {
-      setSavingRegistrationSettings(false);
-    }
-  };
-
-  const visible = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return items.filter((item) => {
-      const statusOk = filter === 'all' || item.status === filter;
-      const searchOk = !q || [item.fullName, item.email, item.phone, item.organization, item.categoryName, item.id]
-        .some((value) => String(value || '').toLowerCase().includes(q));
-      return statusOk && searchOk;
-    });
-  }, [items, filter, search]);
-
-  const review = async (item: Registration, decision: 'approved' | 'rejected' | 'waitlisted') => {
-    let rejectionReason = '';
-    if (decision === 'rejected') {
-      rejectionReason = window.prompt('Reason for rejection (optional):', '') || '';
-      if (!window.confirm(`Reject registration for ${item.fullName}?`)) return;
-    } else if (decision === 'approved') {
-      if (!window.confirm(`Approve ${item.fullName}? This will generate an EVENTZ participant pass.`)) return;
-    } else if (!window.confirm(`Move ${item.fullName} to the waitlist?`)) {
-      return;
-    }
-
-    setActingId(item.id);
-    setMessage('');
-    try {
-      const res = await fetch('/api/attendee-requests', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kind: 'registration', id: item.id, decision, reviewedBy: adminName, rejectionReason })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Review action failed.');
-      if (data.capacityReached) {
-        const remaining = data.capacity || {};
-        setMessage(`Capacity is still unavailable for this request. It remains waitlisted. Event seats: ${remaining.eventRemaining ?? 'unlimited'}, category seats: ${remaining.categoryRemaining ?? 'unlimited'}, requested: ${remaining.requestedSlots || item.requestedSlots || 1}.`);
-      } else if (decision === 'approved') {
-        const emailStatus = data.registration?.approvalEmailStatus;
-        setMessage(
-          emailStatus === 'queued'
-            ? 'Registration approved, pass created, and the approval email was accepted by the transactional provider.'
-            : emailStatus === 'sent'
-              ? 'Registration approved, pass created, and approval email sent.'
-              : emailStatus === 'skipped'
-              ? 'Registration approved and pass created. No approval email was sent because no valid email address is available.'
-              : emailStatus === 'failed'
-                ? `Registration approved and pass created, but the approval email failed: ${data.registration?.approvalEmailError || 'delivery error'}`
-                : 'Registration approved and pass created.'
-        );
-      } else {
-        setMessage(`Registration ${decision}.`);
-      }
-      await load(true);
-      onChanged?.();
-    } catch (err: any) {
-      setMessage(err?.message || 'Review action failed.');
-    } finally {
-      setActingId('');
-    }
-  };
-
-  const statusClass = (status: Registration['status']) => {
-    if (status === 'approved') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-    if (status === 'rejected') return 'bg-rose-50 text-rose-700 border-rose-200';
-    if (status === 'waitlisted') return 'bg-amber-50 text-amber-700 border-amber-200';
-    return 'bg-blue-50 text-blue-700 border-blue-200';
-  };
-
-  const copyRegistrationLink = async () => {
-    try {
-      await navigator.clipboard.writeText(registrationUrl);
-      setShareCopied(true);
-      setTimeout(() => setShareCopied(false), 1800);
-    } catch {
-      window.prompt('Copy registration link:', registrationUrl);
-    }
-  };
-
-  const shareRegistrationLink = async () => {
-    const shareData = {
-      title: 'EVENTZ Registration',
-      text: 'Register for this event using the official EVENTZ registration portal.',
-      url: registrationUrl
-    };
-    if (navigator.share) {
-      try {
-        await navigator.share(shareData);
-        return;
-      } catch (error: any) {
-        if (error?.name === 'AbortError') return;
-      }
-    }
-    await copyRegistrationLink();
-  };
-
   return (
-    <div className="space-y-6 text-left">
-      <style>{`
-        @keyframes eventzModalBackdropIn {
-          from { opacity: 0; backdrop-filter: blur(0px); }
-          to { opacity: 1; backdrop-filter: blur(18px); }
-        }
-        @keyframes eventzModalCardIn {
-          0% { opacity: 0; transform: translateY(28px) scale(.965); filter: blur(8px); }
-          58% { opacity: 1; transform: translateY(-2px) scale(1.004); filter: blur(0); }
-          100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
-        }
-        .eventz-reg-backdrop { animation: eventzModalBackdropIn 240ms ease-out both; }
-        .eventz-reg-card { animation: eventzModalCardIn 520ms cubic-bezier(.16,1,.3,1) both; }
-        @media (prefers-reduced-motion: reduce) {
-          .eventz-reg-backdrop, .eventz-reg-card { animation: none !important; }
-        }
-      `}</style>
-
-      <div className="rounded-[28px] border border-slate-200/70 bg-white/80 backdrop-blur-xl shadow-[0_18px_60px_rgba(15,23,42,0.06)] p-5 md:p-6">
-        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-5">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full bg-slate-950 text-white px-3 py-1.5 text-[9px] uppercase tracking-[0.2em] font-black">
-              <Sparkles size={11} className="text-yellow-400" /> Registration command desk
-            </div>
-            <h2 className="text-2xl font-black text-slate-950 mt-3 tracking-tight">Registration Command Centre</h2>
-            <p className="text-xs text-slate-500 mt-1.5 max-w-2xl leading-relaxed">
-              Set the public registration rules, share the event portal, and move requests through Pending, Approved, Rejected or Waitlisted.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={copyRegistrationLink}
-              className="px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-black text-slate-700 hover:bg-slate-50 hover:-translate-y-0.5 hover:shadow-md transition-all duration-300 flex items-center gap-2"
-            >
-              {shareCopied ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
-              {shareCopied ? 'Copied' : 'Copy Link'}
-            </button>
-
-            <button
-              onClick={shareRegistrationLink}
-              className="px-4 py-2.5 rounded-xl bg-slate-950 text-white text-xs font-black hover:bg-slate-800 hover:-translate-y-0.5 hover:shadow-xl transition-all duration-300 flex items-center gap-2"
-            >
-              <Share2 size={14} /> Share Registration
-            </button>
-
-            <button
-              onClick={() => window.open('/register', '_blank')}
-              className="px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-xs font-black text-slate-700 hover:bg-slate-50 transition-all flex items-center gap-2"
-            >
-              <ExternalLink size={14} /> Open Portal
-            </button>
-
-            <button
-              onClick={() => load()}
-              disabled={loading}
-              className="p-2.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all disabled:opacity-50"
-              title="Refresh registrations"
-            >
-              <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-5 rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div>
-            <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Public registration portal</p>
-            <p className="text-xs font-mono font-bold text-slate-700 mt-1 break-all">{registrationUrl}</p>
-          </div>
-          <p className="text-[10px] text-slate-400 max-w-sm leading-relaxed">
-            Use this one URL for public/self-registration. The setup below controls whether it is open, private, full, or waitlisting new requests.
+    <section className="bg-white rounded-2xl border border-slate-200 p-5 space-y-5">
+      <div className="flex flex-wrap gap-3 justify-between items-start">
+        <div>
+          <h2 className="font-black text-lg flex items-center gap-2">
+            <Users size={20} /> Event registrations
+          </h2>
+          <p className="text-sm text-slate-500 mt-1">
+            People joining your event through EVENTZ receive their pass
+            immediately.
           </p>
         </div>
-
-        <div className="mt-4 grid lg:grid-cols-[1fr_auto] gap-3 items-stretch">
-          <div className={`rounded-2xl border px-4 py-3 ${registrationStatus.tone}`}>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[9px] uppercase font-black tracking-wider">Live registration state</span>
-              <span className="rounded-full bg-white/70 px-2.5 py-1 text-[9px] font-black uppercase">{registrationStatus.label}</span>
-              {registrationSettingsDirty && <span className="rounded-full bg-slate-950 text-white px-2.5 py-1 text-[9px] font-black uppercase">Unsaved changes</span>}
-            </div>
-            <p className="text-xs font-bold mt-2 leading-relaxed">{registrationStatus.description}</p>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-2">
-            <PolicyChip label="Deadline" value={registrationDraft.registrationDeadline ? new Date(registrationDraft.registrationDeadline).toLocaleString() : 'No deadline'} />
-            <PolicyChip label="Capacity" value={registrationDraft.eventCapacity ? `${approvedSlots}/${registrationDraft.eventCapacity} seats` : `${approvedSlots} used`} />
-            <PolicyChip label="Waitlist" value={registrationDraft.waitlistEnabled === false ? 'Off' : 'On'} />
-            <PolicyChip label="Guests" value={registrationDraft.allowGuests ? `Up to ${registrationDraft.maxGuestsPerRegistration ?? 1}` : 'Off'} />
-            <PolicyChip label="Fields" value={`${Array.isArray(registrationDraft.customRegistrationFields) ? registrationDraft.customRegistrationFields.length : 0} custom`} />
-          </div>
-        </div>
+        <button
+          onClick={refresh}
+          className="p-2 border rounded-lg"
+          aria-label="Refresh registrations"
+        >
+          <RefreshCw size={17} />
+        </button>
       </div>
-
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        {[
-          ['all', 'All', counts.all],
-          ['pending', 'Pending', counts.pending],
-          ['approved', 'Approved', counts.approved],
-          ['waitlisted', 'Waitlisted', counts.waitlisted],
-          ['rejected', 'Rejected', counts.rejected]
-        ].map(([key, label, count]) => (
-          <button
-            key={String(key)}
-            onClick={() => setFilter(key as any)}
-            className={`rounded-2xl border p-4 text-left transition-all duration-300 ease-out hover:-translate-y-1 hover:shadow-lg ${
-              filter === key
-                ? 'bg-slate-950 border-slate-950 text-white shadow-xl'
-                : 'bg-white border-slate-100 hover:border-slate-300'
-            }`}
-          >
-            <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">{label}</p>
-            <p className="text-2xl font-black font-mono mt-1">{count}</p>
-          </button>
-        ))}
+      <div className="flex flex-wrap gap-3">
+        <a
+          className="text-sm font-bold underline inline-flex gap-2 items-center"
+          href={`/events/${event.id}`}
+        >
+          <ExternalLink size={15} /> Public event page
+        </a>
+        <a
+          className="text-sm font-bold underline"
+          href={`/events/${event.id}/edit`}
+        >
+          Edit registration availability and capacity
+        </a>
       </div>
-
-      {message && <div className="rounded-2xl border border-slate-200 bg-white p-3 text-xs font-bold text-slate-700 shadow-sm">{message}</div>}
-
-      <RegistrationControlsPanel
-        value={registrationDraft}
-        onChange={(patch) => setRegistrationDraft((prev) => ({ ...prev, ...patch }))}
-        onSaveSettings={saveRegistrationSettings}
-        settingsDirty={registrationSettingsDirty}
-        savingSettings={savingRegistrationSettings}
-        registrations={items}
-        onChanged={onChanged}
-      />
-
-      <div className="bg-white border border-slate-100 rounded-[28px] shadow-[0_18px_50px_rgba(15,23,42,0.05)] overflow-hidden">
-        <div className="p-4 border-b border-slate-100">
-          <div className="relative">
-            <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search name, email, phone, organization, category or registration ID..."
-              className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:bg-white focus:ring-1 focus:ring-slate-900 transition-all"
-            />
-          </div>
-        </div>
-
+      <label className="flex items-center gap-2 border rounded-xl px-3 py-2">
+        <Search size={16} />
+        <input
+          aria-label="Search registrations"
+          placeholder="Search by attendee name or email"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="w-full outline-none text-sm"
+        />
+      </label>
+      {error && (
+        <p role="alert" className="text-red-700">
+          {error}
+        </p>
+      )}
+      {loading ? (
+        <p role="status">Loading registrations…</p>
+      ) : !filtered.length ? (
+        <p className="text-slate-500 py-8 text-center">
+          {query
+            ? "No matching registrations."
+            : "Your online registrations will appear here."}
+        </p>
+      ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[860px] text-xs">
-            <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider">
-              <tr>
-                <th className="py-3 px-4 text-left">Registrant</th>
-                <th className="py-3 px-4 text-left">Category</th>
-                <th className="py-3 px-4 text-left">Submitted</th>
-                <th className="py-3 px-4 text-left">Status</th>
-                <th className="py-3 px-4 text-right">Review</th>
+          <table className="w-full text-sm text-left">
+            <thead>
+              <tr className="text-slate-500 border-b">
+                <th className="py-3">Attendee</th>
+                <th>Registered</th>
+                <th>Pass status</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
-              {!loading && visible.length === 0 && <tr><td colSpan={5} className="py-16 text-center text-slate-400">No registration requests match this view.</td></tr>}
-              {visible.map((item) => (
-                <tr
-                  key={item.id}
-                  onClick={() => setSelected(item)}
-                  className="group cursor-pointer hover:bg-slate-50/70 transition-all duration-300"
-                >
-                  <td className="py-4 px-4">
-                    <div className="transition-transform duration-300 group-hover:translate-x-1">
-                      <p className="font-black text-slate-900 text-sm">{item.fullName}</p>
-                      <p className="text-[10px] text-slate-500 mt-1">{item.email || 'No email'} · {item.phone || 'No phone'}</p>
-                      <p className="text-[10px] text-slate-400">{item.organization || 'Independent'} · <span className="font-mono">{item.id}</span></p>
-                    </div>
+            <tbody>
+              {filtered.map((p) => (
+                <tr key={p.id} className="border-b border-slate-100">
+                  <td className="py-4">
+                    <strong>{p.fullName}</strong>
+                    <div className="text-xs text-slate-500">{p.email}</div>
                   </td>
-                  <td className="py-4 px-4"><span className="font-black text-slate-700 bg-slate-100 px-2 py-1 rounded-full">{item.categoryName || 'Attendees'}</span></td>
-                  <td className="py-4 px-4 text-slate-500">{new Date(item.submittedAt).toLocaleString()}</td>
-                  <td className="py-4 px-4">
-                    <span className={`px-2.5 py-1 rounded-full border text-[9px] uppercase font-black ${statusClass(item.status)}`}>{item.status}</span>
-                    {item.reviewedBy && <p className="text-[9px] text-slate-400 mt-2">Reviewed by {item.reviewedBy}</p>}
-                  </td>
-                  <td className="py-4 px-4 text-right">
-                    {item.status !== 'approved' ? (
-                      <div className="inline-flex gap-1" onClick={(e) => e.stopPropagation()}>
-                        <button disabled={actingId === item.id} onClick={() => review(item, 'approved')} title={item.status === 'waitlisted' ? 'Promote from waitlist and generate passes' : 'Approve and generate pass'} className="p-2 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-40 transition-all hover:scale-105"><UserCheck size={14} /></button>
-                        {item.status !== 'waitlisted' && <button disabled={actingId === item.id} onClick={() => review(item, 'waitlisted')} title="Waitlist" className="p-2 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-40 transition-all hover:scale-105"><Clock3 size={14} /></button>}
-                        <button disabled={actingId === item.id} onClick={() => review(item, 'rejected')} title="Reject" className="p-2 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 disabled:opacity-40 transition-all hover:scale-105"><UserX size={14} /></button>
-                      </div>
-                    ) : (
-                      <div className="inline-flex items-center gap-1 text-emerald-700 font-bold"><CheckCircle2 size={14} /> Pass created</div>
-                    )}
+                  <td>{new Date(p.createdAt).toLocaleDateString()}</td>
+                  <td>
+                    <span className="inline-flex items-center gap-1">
+                      <CheckCircle2 size={14} />
+                      {p.status === PassStatus.CANCELLED
+                        ? "Cancelled"
+                        : p.status === PassStatus.USED
+                          ? "Checked in"
+                          : "Confirmed"}
+                    </span>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      </div>
-
-      <div className="rounded-2xl bg-slate-950 text-slate-300 p-4 text-[11px] leading-relaxed flex gap-3">
-        <Users size={16} className="text-yellow-400 shrink-0 mt-0.5" />
-        <p>Click any registrant row to open the full registration card. Approving creates the participant and pass; waitlisted and rejected requests do not consume participant passes.</p>
-      </div>
-
-      {selected && (
-        <div
-          className="eventz-reg-backdrop fixed inset-0 z-[120] bg-slate-950/45 backdrop-blur-xl flex items-center justify-center p-4 md:p-8"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setSelected(null);
-          }}
-        >
-          <div className="eventz-reg-card w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-[32px] bg-white/95 backdrop-blur-2xl border border-white/70 shadow-[0_40px_120px_rgba(15,23,42,0.35)]">
-            <div className="sticky top-0 z-10 bg-white/85 backdrop-blur-2xl border-b border-slate-100 px-6 py-5 flex items-start justify-between gap-4">
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className={`px-2.5 py-1 rounded-full border text-[9px] uppercase font-black ${statusClass(selected.status)}`}>{selected.status}</span>
-                  <span className="px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 text-[9px] font-black uppercase">{selected.categoryName || 'Attendees'}</span>
-                </div>
-                <h3 className="text-2xl font-black text-slate-950 mt-3 tracking-tight">{selected.fullName}</h3>
-                <p className="text-[10px] text-slate-400 font-mono mt-1">{selected.id}</p>
-              </div>
-              <button onClick={() => setSelected(null)} className="w-10 h-10 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition-all hover:rotate-90 duration-300">
-                <X size={17} />
-              </button>
-            </div>
-
-            <div className="p-6 md:p-8 space-y-7">
-              <div className="grid md:grid-cols-2 gap-4">
-                <InfoCard icon={<Mail size={15} />} label="Email" value={selected.email || 'Not provided'} />
-                <InfoCard icon={<Phone size={15} />} label="Phone" value={selected.phone || 'Not provided'} />
-                <InfoCard icon={<Users size={15} />} label="Organization" value={selected.organization || 'Independent'} />
-                <InfoCard icon={<MapPin size={15} />} label="Category / access request" value={selected.categoryName || 'Attendees'} />
-              </div>
-
-              <div className="grid sm:grid-cols-3 gap-3">
-                <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
-                  <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Approval email</p>
-                  <p className={`text-sm font-black mt-2 ${selected.approvalEmailStatus === 'failed' ? 'text-rose-700' : selected.approvalEmailStatus === 'sent' ? 'text-emerald-700' : selected.approvalEmailStatus === 'queued' ? 'text-blue-700' : 'text-slate-900'}`}>
-                    {selected.approvalEmailStatus === 'queued' ? 'Queued' : selected.approvalEmailStatus === 'sent' ? 'Sent' : selected.approvalEmailStatus === 'failed' ? 'Failed' : selected.approvalEmailStatus === 'skipped' ? 'Skipped' : 'Not sent'}
-                  </p>
-                  {selected.approvalEmailSentAt && <p className="text-[9px] text-slate-400 mt-1">{new Date(selected.approvalEmailSentAt).toLocaleString()}</p>}
-                </div>
-                <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
-                  <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Submitted</p>
-                  <p className="text-sm font-black text-slate-900 mt-2">{new Date(selected.submittedAt).toLocaleString()}</p>
-                </div>
-                <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
-                  <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Participant record</p>
-                  <p className="text-sm font-black text-slate-900 mt-2 break-all">{selected.participantId || 'Not created yet'}</p>
-                </div>
-              </div>
-
-              <div className="grid sm:grid-cols-3 gap-3">
-                <div className="rounded-2xl border border-slate-100 bg-white p-4">
-                  <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">RSVP</p>
-                  <p className={`text-sm font-black mt-2 ${selected.rsvpStatus === 'declined' ? 'text-rose-700' : selected.rsvpStatus === 'maybe' ? 'text-amber-700' : 'text-slate-900'}`}>
-                    {selected.rsvpStatus === 'declined' ? 'Declined' : selected.rsvpStatus === 'maybe' ? 'Maybe / undecided' : selected.rsvpStatus === 'yes' ? 'Attending' : 'Pending'}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-slate-100 bg-white p-4">
-                  <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Registration source</p>
-                  <p className="text-sm font-black text-slate-900 mt-2">{selected.source === 'invitation' ? 'Private invitation' : 'Public portal'}</p>
-                </div>
-                <div className="rounded-2xl border border-slate-100 bg-white p-4">
-                  <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Requested passes</p>
-                  <p className="text-sm font-black text-slate-900 mt-2">{selected.requestedSlots || 1}</p>
-                </div>
-              </div>
-
-              {selected.approvalEmailError && (
-                <div className="rounded-2xl bg-rose-50 border border-rose-100 p-4">
-                  <p className="text-[9px] uppercase font-black tracking-wider text-rose-500">Approval email delivery issue</p>
-                  <p className="text-xs text-rose-700 mt-2 leading-relaxed">{selected.approvalEmailError}</p>
-                </div>
-              )}
-
-              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-5">
-                <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Registrant note</p>
-                <p className="text-sm text-slate-700 leading-relaxed mt-2 whitespace-pre-wrap">{selected.notes || 'No additional information was submitted.'}</p>
-              </div>
-
-              <div className="grid sm:grid-cols-1 gap-3">
-                <div className="rounded-2xl border border-slate-100 bg-white p-4">
-                  <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Guests</p>
-                  <p className="text-sm font-black text-slate-900 mt-2">{selected.guests?.length || 0}</p>
-                </div>
-              </div>
-
-              {selected.customAnswers && Object.keys(selected.customAnswers).length > 0 && (
-                <div className="rounded-2xl border border-slate-100 bg-white p-5">
-                  <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Custom registration answers</p>
-                  <div className="mt-3 grid sm:grid-cols-2 gap-3">
-                    {Object.entries(selected.customAnswers).map(([fieldId, answer]) => {
-                      const definition = registrationDraft.customRegistrationFields?.find((field) => field.id === fieldId);
-                      return (
-                        <div key={fieldId} className="rounded-xl bg-slate-50 border border-slate-100 p-3">
-                          <p className="text-[9px] font-black uppercase tracking-wider text-slate-400">{definition?.label || fieldId}</p>
-                          <p className="text-xs font-bold text-slate-800 mt-1 whitespace-pre-wrap">{typeof answer === 'boolean' ? (answer ? 'Yes' : 'No') : String(answer || '-')}</p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {Boolean(selected.guests?.length) && (
-                <div className="rounded-2xl border border-slate-100 bg-[#f7f8fb] p-5">
-                  <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Guest requests</p>
-                  <div className="mt-3 space-y-2">
-                    {selected.guests!.map((guest, index) => (
-                      <div key={index} className="rounded-xl bg-white border border-slate-100 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                        <div>
-                          <p className="text-xs font-black text-slate-800">{guest.fullName}</p>
-                          <p className="text-[10px] text-slate-400 mt-1">{guest.email || 'No email'} · {guest.phone || 'No phone'}</p>
-                        </div>
-                        <span className="text-[9px] font-black uppercase text-slate-400">Guest {index + 1}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {(selected.reviewedAt || selected.reviewedBy || selected.rejectionReason) && (
-                <div className="rounded-2xl border border-slate-100 p-5">
-                  <p className="text-[9px] uppercase font-black tracking-wider text-slate-400">Review history</p>
-                  <div className="mt-3 grid sm:grid-cols-2 gap-3 text-xs">
-                    <div><span className="text-slate-400">Reviewed by</span><p className="font-bold text-slate-800 mt-1">{selected.reviewedBy || '—'}</p></div>
-                    <div><span className="text-slate-400">Reviewed at</span><p className="font-bold text-slate-800 mt-1">{selected.reviewedAt ? new Date(selected.reviewedAt).toLocaleString() : '—'}</p></div>
-                  </div>
-                  {selected.rejectionReason && <p className="mt-3 text-xs text-rose-700 bg-rose-50 border border-rose-100 rounded-xl p-3">{selected.rejectionReason}</p>}
-                </div>
-              )}
-
-              {selected.status !== 'approved' && (
-                <div className="flex flex-col sm:flex-row gap-2 pt-1">
-                  <button disabled={actingId === selected.id} onClick={() => review(selected, 'approved')} className="flex-1 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center justify-center gap-2 transition-all hover:-translate-y-0.5"><UserCheck size={14} /> {selected.status === 'waitlisted' ? 'Promote & Create Passes' : 'Approve & Create Passes'}</button>
-                  {selected.status !== 'waitlisted' && <button disabled={actingId === selected.id} onClick={() => review(selected, 'waitlisted')} className="flex-1 py-3 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-black flex items-center justify-center gap-2 transition-all"><Clock3 size={14} /> Waitlist</button>}
-                  <button disabled={actingId === selected.id} onClick={() => review(selected, 'rejected')} className="flex-1 py-3 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-black flex items-center justify-center gap-2 transition-all"><UserX size={14} /> Reject</button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
       )}
-    </div>
-  );
-}
-
-function PolicyChip({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-slate-100 bg-white/85 px-3 py-3 min-w-[120px]">
-      <div className="flex items-center gap-1.5 text-slate-400">
-        <CalendarClock size={11} />
-        <span className="text-[8px] uppercase font-black tracking-wider">{label}</span>
-      </div>
-      <p className="text-[11px] font-black text-slate-800 mt-1 leading-tight">{value}</p>
-    </div>
-  );
-}
-
-function InfoCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
-  return (
-    <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 transition-all duration-300 hover:bg-white hover:shadow-md hover:-translate-y-0.5">
-      <div className="flex items-center gap-2 text-slate-400">
-        {icon}
-        <span className="text-[9px] uppercase font-black tracking-wider">{label}</span>
-      </div>
-      <p className="text-sm font-bold text-slate-900 mt-2 break-words">{value}</p>
-    </div>
+    </section>
   );
 }

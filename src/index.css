@@ -1,4 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
 @import "tailwindcss";
 
 @theme {
@@ -689,7 +688,7 @@ select:focus {
   border: 1px solid rgba(255,255,255,.08);
 }
 
-.eventz-main :where(.rounded-3xl, .rounded-[28px], .rounded-[30px], .rounded-[32px], .rounded-[34px]) {
+.eventz-main :where(.rounded-3xl, .rounded-\[28px\], .rounded-\[30px\], .rounded-\[32px\], .rounded-\[34px\]) {
   transition:
     transform 360ms var(--eventz-spring),
     box-shadow 360ms var(--eventz-spring),
@@ -698,9 +697,9 @@ select:focus {
 }
 
 .eventz-main :where(.bg-white).rounded-3xl,
-.eventz-main :where(.bg-white).rounded-[28px],
-.eventz-main :where(.bg-white/80).rounded-[28px],
-.eventz-main :where(.bg-white/95).rounded-[32px],
+.eventz-main :where(.bg-white).rounded-\[28px\],
+.eventz-main :where(.bg-white\/80).rounded-\[28px\],
+.eventz-main :where(.bg-white\/95).rounded-\[32px\],
 .eventz-main :where(.apple-card) {
   box-shadow: 0 14px 44px rgba(15,23,42,.055);
   border-color: rgba(15,23,42,.06) !important;

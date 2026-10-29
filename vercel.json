@@ -4,55 +4,11 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/api/account-management",
-      "destination": "/api/account-management.ts"
-    },
-    {
-      "source": "/api/attendee-requests",
-      "destination": "/api/attendee-requests.ts"
-    },
-    {
-      "source": "/api/export-registry",
-      "destination": "/api/export-registry.ts"
-    },
-    {
-      "source": "/api/export-report",
-      "destination": "/api/export-report.ts"
-    },
-    {
-      "source": "/api/pass-qr/:passId",
-      "destination": "/api/pass-qr.ts?passId=:passId"
-    },
-    {
-      "source": "/api/participants/:id/regenerate",
-      "destination": "/api/regenerate-pass.ts?id=:id"
-    },
-    {
-      "source": "/api/scan-logs/clear",
-      "destination": "/api/clear-scan-logs.ts"
-    },
-    {
-      "source": "/api/email-logs/clear",
-      "destination": "/api/clear-email-logs.ts"
-    },
-    {
-      "source": "/api/verify/:passId/claim",
-      "destination": "/api/claim-pass.ts?passId=:passId"
-    },
-    {
-      "source": "/api/participants/:id/email",
-      "destination": "/api/participant-email.ts?id=:id"
-    },
-    {
-      "source": "/api/participants/bulk-email",
-      "destination": "/api/bulk-email.ts"
-    },
-    {
       "source": "/api/(.*)",
       "destination": "/api/index.ts"
     },
     {
-      "source": "/((?!api|assets|favicon.ico|manifest.json).*)",
+      "source": "/((?!api|assets|favicon.ico|manifest.webmanifest).*)",
       "destination": "/index.html"
     }
   ]

@@ -1,3 +1,4 @@
+import { workspaceFetch } from '../utils/auth.js';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Check,
@@ -113,8 +114,8 @@ export default function RegistrationControlsPanel({
     setLoadingInvites(true);
     try {
       const [categoryRes, inviteRes] = await Promise.all([
-        fetch('/api/attendee-requests?mode=categories-admin', { cache: 'no-store' }),
-        fetch('/api/attendee-requests?mode=invitations', { cache: 'no-store' })
+        workspaceFetch('/api/attendee-requests?mode=categories-admin', { cache: 'no-store' }),
+        workspaceFetch('/api/attendee-requests?mode=invitations', { cache: 'no-store' })
       ]);
       const categoryData = await categoryRes.json();
       const inviteData = await inviteRes.json();
@@ -151,7 +152,7 @@ export default function RegistrationControlsPanel({
     setSavingCategoryId(category.id);
     setMessage('');
     try {
-      const res = await fetch('/api/attendee-requests', {
+      const res = await workspaceFetch('/api/attendee-requests', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -177,7 +178,7 @@ export default function RegistrationControlsPanel({
   const createInvitation = async () => {
     setMessage('');
     try {
-      const res = await fetch('/api/attendee-requests', {
+      const res = await workspaceFetch('/api/attendee-requests', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -223,7 +224,7 @@ export default function RegistrationControlsPanel({
     if (!window.confirm('Delete this invitation link? Existing registrations are not affected.')) return;
     setMessage('');
     try {
-      const res = await fetch(`/api/attendee-requests?mode=invitation&id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const res = await workspaceFetch(`/api/attendee-requests?mode=invitation&id=${encodeURIComponent(id)}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Unable to delete invitation.');
       setInvitations((items) => items.filter((item) => item.id !== id));

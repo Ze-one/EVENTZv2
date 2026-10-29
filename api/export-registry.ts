@@ -1,3 +1,4 @@
+import { currentEventId } from '../src/server/event-scope.js';
 import fs from 'fs';
 import path from 'path';
 import XLSX from 'xlsx';
@@ -157,6 +158,7 @@ function buildPdf(rows: Record<string, any>[], event: any) {
 }
 
 export default async function handler(req: any, res: any) {
+  if (!currentEventId()) { res.status(404).json({ error: 'Use the authenticated event workspace API.' }); return; }
   try {
     const format = String(req.query?.format || 'csv').toLowerCase();
     const { participants, event } = await loadData();

@@ -1,3 +1,4 @@
+import { workspaceFetch } from '../utils/auth.js';
 import React, { useEffect, useMemo, useState } from 'react';
 import { RefreshCcw, Search, X, ShieldAlert, CheckCircle2 } from 'lucide-react';
 import { Participant, UserRole, PassStatus } from '../types.js';
@@ -25,7 +26,7 @@ export default function PassRegeneratorControl() {
 
   const loadParticipants = async () => {
     try {
-      const res = await fetch('/api/participants');
+      const res = await workspaceFetch('/api/participants');
       if (res.ok) setParticipants(await res.json());
     } catch {}
   };
@@ -66,7 +67,7 @@ export default function PassRegeneratorControl() {
     setMessage('');
     setLastResult(null);
     try {
-      const res = await fetch(`/api/participants/${encodeURIComponent(selected.id)}/regenerate`, {
+      const res = await workspaceFetch(`/api/participants/${encodeURIComponent(selected.id)}/regenerate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ regeneratedBy: currentUser?.name || 'Admin', resetCheckIn: true })

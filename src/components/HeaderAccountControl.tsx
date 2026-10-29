@@ -1,3 +1,4 @@
+import { workspaceFetch } from '../utils/auth.js';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, CheckCircle2, ChevronDown, LogOut, Save, ShieldCheck, Trash2, User, UserPlus, X } from 'lucide-react';
 import { UserRole } from '../types.js';
@@ -62,7 +63,7 @@ export default function HeaderAccountControl() {
 
   const loadUsers = async () => {
     try {
-      const res = await fetch('/api/account-management');
+      const res = await workspaceFetch('/api/account-management');
       if (!res.ok) return;
       const list: SafeUser[] = await res.json();
       const normalizedList = list.map(normalizeUser);
@@ -100,7 +101,7 @@ export default function HeaderAccountControl() {
     setSaving(true);
     setMessage('');
     try {
-      const res = await fetch('/api/account-management', {
+      const res = await workspaceFetch('/api/account-management', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -146,7 +147,7 @@ export default function HeaderAccountControl() {
   const createGateOfficer = async () => {
     setMessage('');
     try {
-      const res = await fetch('/api/account-management', {
+      const res = await workspaceFetch('/api/account-management', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: gateName, email: gateEmail, password: gatePassword })
@@ -167,7 +168,7 @@ export default function HeaderAccountControl() {
     if (!confirm('Delete this gate officer account?')) return;
     setMessage('');
     try {
-      const res = await fetch(`/api/account-management?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const res = await workspaceFetch(`/api/account-management?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Unable to delete gate officer account.');
       setMessage('Gate officer account deleted.');

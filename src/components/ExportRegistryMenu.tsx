@@ -1,3 +1,4 @@
+import { workspaceDownload } from '../utils/auth.js';
 import React, { useState } from 'react';
 import { Download, FileSpreadsheet, FileText, Table } from 'lucide-react';
 
@@ -5,7 +6,7 @@ export default function ExportRegistryMenu() {
   const [open, setOpen] = useState(false);
 
   const startDownload = (format: 'csv' | 'xlsx' | 'pdf') => {
-    window.open(`/api/export-registry?format=${format}`, '_blank');
+    workspaceDownload(`/api/export-registry?format=${format}`).catch(error => window.alert(error.message));
     setOpen(false);
   };
 

@@ -1,3 +1,4 @@
+import { currentEventId } from '../src/server/event-scope.js';
 import crypto from 'crypto';
 import { db } from '../src/server/db.js';
 import { PassStatus, ScanResult } from '../src/types.js';
@@ -19,6 +20,7 @@ async function makeUniquePassId(indexHint: number) {
 }
 
 export default async function handler(req: any, res: any) {
+  if (!currentEventId()) { res.status(404).json({ error: 'Use the authenticated event workspace API.' }); return; }
   try {
     if (req.method !== 'POST') {
       res.setHeader('Allow', 'POST');

@@ -1,3 +1,4 @@
+import { currentEventId } from '../src/server/event-scope.js';
 import fs from 'fs';
 import path from 'path';
 import { createClient } from '@supabase/supabase-js';
@@ -14,6 +15,7 @@ function getSupabase() {
 }
 
 export default async function handler(req: any, res: any) {
+  if (!currentEventId()) { res.status(404).json({ error: 'Use the authenticated event workspace API.' }); return; }
   if (req.method !== 'POST' && req.method !== 'DELETE') {
     res.setHeader('Allow', 'POST, DELETE');
     res.status(405).json({ error: 'Method not allowed' });

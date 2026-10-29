@@ -1,3 +1,4 @@
+import { workspaceFetch } from '../utils/auth.js';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -38,7 +39,7 @@ export default function ReportsView({ scanLogs, participants, emailLogs, onClear
   const loadSecurityAlerts = async () => {
     setSecurityLoading(true);
     try {
-      const res = await fetch('/api/security-alerts', { cache: 'no-store', headers: eventzAuthHeaders() });
+      const res = await workspaceFetch('/api/security-alerts', { cache: 'no-store', headers: eventzAuthHeaders() });
       const data = await res.json();
       if (res.ok) setSecurityAlerts(Array.isArray(data) ? data : []);
     } catch {
@@ -186,7 +187,7 @@ export default function ReportsView({ scanLogs, participants, emailLogs, onClear
                         onClick={async () => {
                           const rawUser = localStorage.getItem('etsn_user');
                           const user = rawUser ? JSON.parse(rawUser) : null;
-                          const res = await fetch(`/api/security-alerts/${encodeURIComponent(alert.id)}/resolve`, {
+                          const res = await workspaceFetch(`/api/security-alerts/${encodeURIComponent(alert.id)}/resolve`, {
                             method: 'POST',
                             headers: eventzAuthHeaders({ 'Content-Type': 'application/json' }),
                             body: JSON.stringify({ resolvedBy: user?.name || 'Admin' })

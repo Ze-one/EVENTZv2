@@ -1,3 +1,4 @@
+import { workspaceFetch } from '../utils/auth.js';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
@@ -83,7 +84,7 @@ export default function PublicRegistrationView({ event, onBack }: Props) {
 
   useEffect(() => {
     const url = '/api/attendee-requests?mode=registration-config' + (inviteToken ? `&invite=${encodeURIComponent(inviteToken)}` : '');
-    fetch(url, { cache: 'no-store' })
+    workspaceFetch(url, { cache: 'no-store' })
       .then(async (res) => {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Unable to load registration settings.');
@@ -134,7 +135,7 @@ export default function PublicRegistrationView({ event, onBack }: Props) {
     setError('');
     setSubmitting(true);
     try {
-      const res = await fetch('/api/attendee-requests', {
+      const res = await workspaceFetch('/api/attendee-requests', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

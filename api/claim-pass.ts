@@ -1,3 +1,4 @@
+import { currentEventId } from '../src/server/event-scope.js';
 import { processAccessClaim } from '../src/server/access-control.js';
 import { requireSession } from '../src/server/session-auth.js';
 
@@ -17,6 +18,7 @@ function getClientInfo(req: any) {
 }
 
 export default async function handler(req: any, res: any) {
+  if (!currentEventId()) { res.status(404).json({ error: 'Use the authenticated event workspace API.' }); return; }
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     res.status(405).json({ error: 'Method not allowed' });

@@ -1,3 +1,4 @@
+import { currentEventId } from '../src/server/event-scope.js';
 import fs from 'fs';
 import path from 'path';
 import XLSX from 'xlsx';
@@ -442,6 +443,7 @@ function setDownloadHeaders(res: any, contentType: string, filename: string) {
 }
 
 export default async function handler(req: any, res: any) {
+  if (!currentEventId()) { res.status(404).json({ error: 'Use the authenticated event workspace API.' }); return; }
   try {
     const kind = String(req.query?.kind || 'scan-logs') as ReportKind;
     const format = String(req.query?.format || 'csv').toLowerCase();

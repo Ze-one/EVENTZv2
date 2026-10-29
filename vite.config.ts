@@ -17,7 +17,10 @@ export default defineConfig(() => {
         output: {
           manualChunks: {
             react: ['react', 'react-dom'],
-            vendor: ['lucide-react', 'xlsx', 'html5-qrcode', 'qrcode']
+            icons: ['lucide-react'],
+            spreadsheets: ['xlsx'],
+            scanner: ['html5-qrcode'],
+            qr: ['qrcode']
           }
         }
       }

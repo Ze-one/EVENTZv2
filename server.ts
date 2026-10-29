@@ -7,17 +7,25 @@ import dotenv from 'dotenv';
 import express from 'express';
 import path from 'path';
 import crypto from 'crypto';
+import { createServer } from 'node:http';
 import { createClient } from '@supabase/supabase-js';
 import { db } from './src/server/db.js';
 import { PassStatus, ScanResult } from './src/types.js';
 import { createSignedPassToken } from './src/server/pass-security.js';
 import { evaluateAccess, normalizeLocalDate, processAccessClaim, recordDeniedScan, validateSignedTokenForParticipant } from './src/server/access-control.js';
-import { createSessionToken, requireSession } from './src/server/session-auth.js';
+import { requireSession } from './src/server/session-auth.js';
+import { platformRouter, asyncRoute, account, fail, eventInput } from './src/server/platform-router.js';
+import { workspaceRouter } from './src/server/workspace-router.js';
+import { sessionSecret, passSecret } from './src/server/runtime-secrets.js';
+import { currentEventId, eventScope, withEventLock } from './src/server/event-scope.js';
 
 dotenv.config({ path: ['.env.local', '.env'] });
+sessionSecret();
+passSecret();
 
 const appRoot = process.cwd();
 const app = express();
+const httpServer = createServer(app);
 
 export { app };
 
@@ -32,40 +40,57 @@ function getClientInfo(req: express.Request) {
 }
 
 app.use(express.json({ limit: '10mb' }));
+app.use('/api', (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
+app.use('/api/platform', platformRouter);
+app.get('/api/health', (_req, res) => res.json({ ok: true, mode: db.useSupabase ? 'supabase' : 'local' }));
+// All legacy management routes pass through the same event authorization boundary.
+app.use('/api', asyncRoute(async (req, res, next) => {
+  const match = req.url.match(/^\/workspace\/([^/?]+)(\/[^?]*)?(\?.*)?$/);
+  if (!match) return fail(404, 'Use an event workspace or the public platform API.');
+  const user = await account(req), event = await db.getEvent(decodeURIComponent(match[1]));
+  if (!event) return fail(404, 'Event not found.');
+  const role = event.ownerId === user.id ? 'admin' : event.gateOfficerIds?.includes(user.id) ? 'gate_officer' : null;
+  if (!role) return fail(403, 'You do not have access to this event workspace.');
+  const routePath = match[2] || '/';
+  if (role === 'gate_officer' && req.method !== 'GET' && !/^\/verify\/[^/]+\/claim$/.test(routePath) && routePath !== '/offline-sync') return fail(403, 'Gate staff cannot change event management data.');
+  if (event.publicationStatus === 'cancelled' && (/^\/verify\//.test(routePath) || routePath === '/offline-sync')) return fail(409, 'This event has been cancelled.');
+  // The mounted /api middleware restores the /api prefix when next() resumes.
+  req.url = routePath + (match[3] || '');
+  const invoke = () => new Promise<void>(resolve => {
+    res.once('finish', resolve); res.once('close', resolve);
+    eventScope.run({ eventId: event.id, role }, next);
+  });
+  // Serialize event writes locally, including capacity checks and gate claims.
+  if (req.method !== 'GET') await withEventLock(event.id, invoke);
+  else await invoke();
+}));
+app.use('/api', workspaceRouter);
+// Express 4 does not propagate rejected async handlers automatically.
+const route = Object.fromEntries(['get', 'post', 'put', 'delete'].map(method => [method, (url: string, ...handlers: any[]) => (app as any)[method](url, ...handlers.map(asyncRoute))])) as Record<string, (...args: any[]) => void>;
 
-app.post('/api/auth/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
-    const user = await db.verifyUser(email, password);
-    if (!user) return res.status(401).json({ error: 'Invalid email or password' });
-    const { passwordHash, ...safeUser } = user;
-    const sessionToken = createSessionToken(safeUser);
-    return res.json({ user: safeUser, sessionToken });
-  } catch (error: any) {
-    return res.status(500).json({ error: error?.message || 'Login failed' });
-  }
-});
 
-app.get('/api/db-status', (_req, res) => {
+route.get('/api/db-status', (_req, res) => {
   return res.json({ useSupabase: db.useSupabase, dbType: db.useSupabase ? 'Supabase' : 'Local JSON File', databaseFile: process.env.VERCEL ? '/tmp/db.json' : 'db.json' });
 });
 
-app.get('/api/health', (_req, res) => {
+route.get('/api/health', (_req, res) => {
   return res.json({ ok: true, mode: db.useSupabase ? 'supabase' : 'local', timestamp: new Date().toISOString() });
 });
 
-app.get('/api/event', async (_req, res) => {
+route.get('/api/event', async (_req, res) => {
   const event = await db.getEvent();
   return res.json(event);
 });
 
-app.post('/api/event', async (req, res) => {
-  const event = await db.updateEvent('event-1', req.body || {});
+route.post('/api/event', async (req, res) => {
+  const designFields = ['passTitle', 'accessInstruction', 'footerNote', 'logoPath', 'organizerName', 'primaryColor', 'accentColor', 'showPhone', 'showEmail', 'showCategory', 'showOrganization', 'dashboardMediaFit', 'dashboardMediaPosition', 'dashboardMediaOverlay', 'dashboardMediaAutoplay', 'dashboardMediaLoop'];
+  const design = Object.fromEntries(designFields.filter(key => Object.hasOwn(req.body || {}, key)).map(key => [key, req.body[key]]));
+  const previous = await db.getEvent();
+  const event = await db.updateEvent(currentEventId()!, { ...design, ...eventInput({ ...req.body, publicationStatus: previous!.publicationStatus }, previous) });
   return res.json(event);
 });
 
-app.post('/api/dashboard-media/upload-ticket', async (req, res) => {
+route.post('/api/dashboard-media/upload-ticket', async (req, res) => {
   const auth = requireSession(req, ['admin']);
   if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
 
@@ -107,7 +132,7 @@ app.post('/api/dashboard-media/upload-ticket', async (req, res) => {
 
     const cleanName = fileName.replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 100);
     const safeBase = cleanName.replace(/\.[^.]+$/, '').replace(/^-+|-+$/g, '') || 'dashboard-media';
-    const objectPath = `event-1/dashboard/${Date.now()}-${crypto.randomBytes(5).toString('hex')}-${safeBase}.${extensionByType[contentType]}`;
+    const objectPath = `${currentEventId()}/dashboard/${Date.now()}-${crypto.randomBytes(5).toString('hex')}-${safeBase}.${extensionByType[contentType]}`;
 
     const storage = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
     const { data, error } = await storage.storage
@@ -130,7 +155,7 @@ app.post('/api/dashboard-media/upload-ticket', async (req, res) => {
   }
 });
 
-app.post('/api/dashboard-media/activate', async (req, res) => {
+route.post('/api/dashboard-media/activate', async (req, res) => {
   const auth = requireSession(req, ['admin']);
   if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
 
@@ -139,7 +164,7 @@ app.post('/api/dashboard-media/activate', async (req, res) => {
     const mediaType = String(req.body?.mediaType || '');
     const name = String(req.body?.name || 'Dashboard visual').slice(0, 140);
 
-    if (!objectPath.startsWith('event-1/dashboard/')) {
+    if (!objectPath.startsWith(`${currentEventId()}/dashboard/`)) {
       return res.status(400).json({ error: 'Invalid dashboard media path.' });
     }
     if (!['image', 'gif', 'video'].includes(mediaType)) {
@@ -155,7 +180,7 @@ app.post('/api/dashboard-media/activate', async (req, res) => {
     const storage = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
     const { data: publicData } = storage.storage.from('eventz-media').getPublicUrl(objectPath);
 
-    const event = await db.updateEvent('event-1', {
+    const event = await db.updateEvent((currentEventId() || 'event-1'), {
       dashboardMediaUrl: publicData.publicUrl,
       dashboardMediaPath: objectPath,
       dashboardMediaType: mediaType,
@@ -176,7 +201,7 @@ app.post('/api/dashboard-media/activate', async (req, res) => {
   }
 });
 
-app.post(
+route.post(
   '/api/dashboard-media',
   express.raw({
     type: ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'video/mp4', 'video/webm'],
@@ -227,7 +252,7 @@ app.post(
         .slice(0, 100);
       const ext = extensionByType[contentType] || 'bin';
       const safeBase = originalName.replace(/\.[^.]+$/, '').replace(/^-+|-+$/g, '') || 'dashboard-media';
-      const objectPath = `event-1/dashboard/${Date.now()}-${crypto.randomBytes(5).toString('hex')}-${safeBase}.${ext}`;
+      const objectPath = `${currentEventId()}/dashboard/${Date.now()}-${crypto.randomBytes(5).toString('hex')}-${safeBase}.${ext}`;
 
       const storage = createClient(supabaseUrl, serviceKey, {
         auth: { persistSession: false }
@@ -246,7 +271,7 @@ app.post(
       const { data: publicData } = storage.storage.from('eventz-media').getPublicUrl(objectPath);
       const mediaType = contentType === 'image/gif' ? 'gif' : contentType.startsWith('video/') ? 'video' : 'image';
 
-      const event = await db.updateEvent('event-1', {
+      const event = await db.updateEvent((currentEventId() || 'event-1'), {
         dashboardMediaUrl: publicData.publicUrl,
         dashboardMediaPath: objectPath,
         dashboardMediaType: mediaType,
@@ -270,13 +295,13 @@ app.post(
   }
 );
 
-app.delete('/api/dashboard-media', async (req, res) => {
+route.delete('/api/dashboard-media', async (req, res) => {
   const auth = requireSession(req, ['admin']);
   if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
 
   try {
     const objectPath = String(req.body?.path || '').trim();
-    if (!objectPath || !objectPath.startsWith('event-1/dashboard/')) {
+    if (!objectPath || !objectPath.startsWith(`${currentEventId()}/dashboard/`)) {
       return res.status(400).json({ error: 'A valid EVENTZ dashboard media path is required.' });
     }
 
@@ -293,7 +318,7 @@ app.delete('/api/dashboard-media', async (req, res) => {
     const { error } = await storage.storage.from('eventz-media').remove([objectPath]);
     if (error) throw new Error(error.message);
 
-    const event = await db.updateEvent('event-1', {
+    const event = await db.updateEvent((currentEventId() || 'event-1'), {
       dashboardMediaUrl: null,
       dashboardMediaPath: null,
       dashboardMediaType: null,
@@ -308,16 +333,16 @@ app.delete('/api/dashboard-media', async (req, res) => {
 });
 
 
-app.get('/api/participants', async (_req, res) => {
+route.get('/api/participants', async (_req, res) => {
   const list = await db.getParticipants();
   return res.json(list);
 });
 
-app.post('/api/participants', async (req, res) => {
+route.post('/api/participants', async (req, res) => {
   const { fullName, phone, email, organization, category } = req.body || {};
   if (!fullName) return res.status(400).json({ error: 'Full name is required' });
   const participant = await db.createParticipant({
-    eventId: 'event-1',
+    eventId: (currentEventId() || 'event-1'),
     fullName,
     phone: phone || '',
     email: email || '',
@@ -331,11 +356,11 @@ app.post('/api/participants', async (req, res) => {
   return res.json(participant);
 });
 
-app.post('/api/participants/batch', async (req, res) => {
+route.post('/api/participants/batch', async (req, res) => {
   const { participants } = req.body || {};
   if (!Array.isArray(participants) || participants.length === 0) return res.status(400).json({ error: 'Participants array is required' });
   const batchData = participants.map((p: any) => ({
-    eventId: 'event-1',
+    eventId: (currentEventId() || 'event-1'),
     fullName: p.fullName || 'Anonymous',
     phone: p.phone || '',
     email: p.email || '',
@@ -350,19 +375,23 @@ app.post('/api/participants/batch', async (req, res) => {
   return res.json({ success: true, count: created.length, data: created });
 });
 
-app.put('/api/participants/:id', async (req, res) => {
-  const updated = await db.updateParticipant(req.params.id, req.body || {} as any);
+route.put('/api/participants/:id', async (req, res) => {
+  const fields = ['fullName', 'phone', 'email', 'organization', 'category', 'status'];
+  const updates = Object.fromEntries(fields.filter(key => Object.hasOwn(req.body || {}, key)).map(key => [key, String(req.body[key]).trim().slice(0, 300)]));
+  if (Object.hasOwn(updates, 'fullName') && !updates.fullName) return fail(400, 'Full name is required.');
+  if (updates.status && !Object.values(PassStatus).includes(updates.status as PassStatus)) return fail(400, 'Invalid pass status.');
+  const updated = await db.updateParticipant(req.params.id, updates);
   if (!updated) return res.status(404).json({ error: 'Participant not found' });
   return res.json(updated);
 });
 
-app.delete('/api/participants/:id', async (req, res) => {
+route.delete('/api/participants/:id', async (req, res) => {
   const deleted = await db.deleteParticipant(req.params.id);
   if (!deleted) return res.status(404).json({ error: 'Participant not found' });
   return res.json({ success: true });
 });
 
-app.post('/api/participants/bulk-delete', async (req, res) => {
+route.post('/api/participants/bulk-delete', async (req, res) => {
   const { ids } = req.body || {};
   if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'Array of ids is required' });
   const initialCount = (await db.getParticipants()).length;
@@ -371,14 +400,14 @@ app.post('/api/participants/bulk-delete', async (req, res) => {
   return res.json({ success: true, count: deletedCount });
 });
 
-app.post('/api/participants/:id/reset', async (req, res) => {
+route.post('/api/participants/:id/reset', async (req, res) => {
   const participant = await db.getParticipantById(req.params.id);
   if (!participant) return res.status(404).json({ error: 'Participant not found' });
-  const updated = await db.updateParticipant(req.params.id, { status: PassStatus.NOT_USED, checkedInAt: undefined, checkedInBy: undefined });
+  const updated = await db.updateParticipant(req.params.id, { status: PassStatus.NOT_USED, checkedInAt: null, checkedInBy: null, accessCount: 0, presenceState: 'outside', lastAccessAt: null, lastAccessGate: null, lastExitAt: null, lastExitGate: null });
   return res.json(updated);
 });
 
-app.get('/api/verify/:passId', async (req, res) => {
+route.get('/api/verify/:passId', async (req, res) => {
   const passId = String(req.params.passId || '').trim().toUpperCase();
   const token = String(req.query.token || req.query.t || '').trim();
   const direction = req.query.direction === 'exit' ? 'exit' : 'entry';
@@ -389,7 +418,7 @@ app.get('/api/verify/:passId', async (req, res) => {
 
   if (!participant) {
     await db.addScanLog({
-      eventId: 'event-1',
+      eventId: (currentEventId() || 'event-1'),
       passId,
       scanResult: ScanResult.INVALID,
       scannedBy,
@@ -468,7 +497,7 @@ app.get('/api/verify/:passId', async (req, res) => {
   });
 });
 
-app.post('/api/verify/:passId/claim-internal', async (req, res) => {
+route.post('/api/verify/:passId/claim-internal', async (req, res) => {
   const { ipAddress, deviceInfo } = getClientInfo(req);
   const result = await processAccessClaim({
     passId: req.params.passId,
@@ -482,7 +511,7 @@ app.post('/api/verify/:passId/claim-internal', async (req, res) => {
   return res.status(result.success ? 200 : 409).json(result);
 });
 
-app.get('/api/offline-manifest', async (req, res) => {
+route.get('/api/offline-manifest', async (req, res) => {
   const auth = requireSession(req, ['admin', 'gate_officer']);
   if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
   try {
@@ -506,7 +535,7 @@ app.get('/api/offline-manifest', async (req, res) => {
     }));
 
     return res.json({
-      eventId: 'event-1',
+      eventId: (currentEventId() || 'event-1'),
       generatedAt: new Date().toISOString(),
       count: manifest.length,
       passes: manifest
@@ -516,7 +545,7 @@ app.get('/api/offline-manifest', async (req, res) => {
   }
 });
 
-app.post('/api/offline-sync', async (req, res) => {
+route.post('/api/offline-sync', async (req, res) => {
   const auth = requireSession(req, ['admin', 'gate_officer']);
   if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
   const transactions = Array.isArray(req.body?.transactions) ? req.body.transactions.slice(0, 500) : [];
@@ -554,7 +583,7 @@ app.post('/api/offline-sync', async (req, res) => {
   });
 });
 
-app.get('/api/participants/:id/pass-history', async (req, res) => {
+route.get('/api/participants/:id/pass-history', async (req, res) => {
   const auth = requireSession(req, ['admin']);
   if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
   const participant = await db.getParticipantById(req.params.id);
@@ -572,7 +601,7 @@ app.get('/api/participants/:id/pass-history', async (req, res) => {
   });
 });
 
-app.post('/api/participants/:id/revoke', async (req, res) => {
+route.post('/api/participants/:id/revoke', async (req, res) => {
   const auth = requireSession(req, ['admin']);
   if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
   const participant = await db.getParticipantById(req.params.id);
@@ -592,7 +621,7 @@ app.post('/api/participants/:id/revoke', async (req, res) => {
   } as any);
 
   await db.addPassHistory({
-    eventId: participant.eventId || 'event-1',
+    eventId: participant.eventId || (currentEventId() || 'event-1'),
     participantId: participant.id,
     action: 'revoked',
     oldPassId: participant.passId,
@@ -605,7 +634,7 @@ app.post('/api/participants/:id/revoke', async (req, res) => {
   return res.json({ success: true, participant: updated });
 });
 
-app.post('/api/participants/:id/access-rules', async (req, res) => {
+route.post('/api/participants/:id/access-rules', async (req, res) => {
   const auth = requireSession(req, ['admin']);
   if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
   const participant = await db.getParticipantById(req.params.id);
@@ -626,7 +655,7 @@ app.post('/api/participants/:id/access-rules', async (req, res) => {
   } as any);
 
   await db.addPassHistory({
-    eventId: participant.eventId || 'event-1',
+    eventId: participant.eventId || (currentEventId() || 'event-1'),
     participantId: participant.id,
     action: 'access_rules_updated',
     oldPassId: participant.passId,
@@ -639,13 +668,13 @@ app.post('/api/participants/:id/access-rules', async (req, res) => {
   return res.json({ success: true, participant: updated });
 });
 
-app.get('/api/security-alerts', async (req, res) => {
+route.get('/api/security-alerts', async (req, res) => {
   const auth = requireSession(req, ['admin']);
   if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
   return res.json(await db.getSecurityAlerts());
 });
 
-app.post('/api/security-alerts/:id/resolve', async (req, res) => {
+route.post('/api/security-alerts/:id/resolve', async (req, res) => {
   const auth = requireSession(req, ['admin']);
   if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
   const alert = await db.resolveSecurityAlert(req.params.id, String(req.body?.resolvedBy || 'Admin'));
@@ -653,22 +682,30 @@ app.post('/api/security-alerts/:id/resolve', async (req, res) => {
   return res.json({ success: true, alert });
 });
 
-app.get('/api/scan-logs', async (_req, res) => res.json(await db.getScanLogs()));
-app.post('/api/scan-logs/clear', async (_req, res) => { await db.clearScanLogs(); return res.json({ success: true }); });
-app.get('/api/email-logs', async (_req, res) => res.json(await db.getEmailLogs()));
-app.post('/api/email-logs/clear', async (_req, res) => { await db.clearEmailLogs(); return res.json({ success: true }); });
+route.get('/api/scan-logs', async (_req, res) => res.json(await db.getScanLogs()));
+route.post('/api/scan-logs/clear', async (_req, res) => { await db.clearScanLogs(); return res.json({ success: true }); });
+route.get('/api/email-logs', async (_req, res) => res.json(await db.getEmailLogs()));
+route.post('/api/email-logs/clear', async (_req, res) => { await db.clearEmailLogs(); return res.json({ success: true }); });
 
-app.post('/api/participants/:id/email', async (_req, res) => {
+route.post('/api/participants/:id/email', async (_req, res) => {
   return res.status(410).json({ error: 'This endpoint is handled by the Vercel serverless email route.' });
 });
 
-app.post('/api/participants/bulk-email', async (_req, res) => {
+route.post('/api/participants/bulk-email', async (_req, res) => {
   return res.status(410).json({ error: 'This endpoint is handled by the Vercel serverless bulk email route.' });
+});
+
+app.use('/api', (_req, res) => res.status(404).json({ error: 'API route not found.' }));
+app.use((error: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  if (res.headersSent) return;
+  const status = error.status || 500;
+  if (status >= 500) console.error('[API]', error.message);
+  res.status(status).json({ error: status >= 500 ? 'The request could not be completed. Check server configuration and try again.' : error.message });
 });
 
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   const vite = await import('vite');
-  const viteServer = await vite.createServer({ server: { middlewareMode: true }, appType: 'spa', root: appRoot });
+  const viteServer = await vite.createServer({ server: { middlewareMode: true, hmr: process.env.DISABLE_HMR === 'true' ? false : { server: httpServer } }, appType: 'spa', root: appRoot });
   app.use(viteServer.middlewares);
 }
 
@@ -677,7 +714,7 @@ app.get('*', (_req, res) => res.sendFile(path.join(appRoot, 'dist', 'index.html'
 
 async function startServer() {
   const PORT = Number(process.env.PORT) || 3000;
-  app.listen(PORT, () => console.log(`EVENTZ server running on http://localhost:${PORT}`));
+  httpServer.listen(PORT, () => console.log(`EVENTZ server running on http://localhost:${PORT}`));
 }
 
 if (!process.env.VERCEL) {

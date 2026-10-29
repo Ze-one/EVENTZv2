@@ -1,3 +1,4 @@
+import { workspaceFetch } from '../utils/auth.js';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, ChevronDown, LogOut, ShieldCheck, User, UserPlus, Trash2, Save, LockKeyhole, X, Bell, CheckCircle2, XCircle } from 'lucide-react';
 import { UserRole } from '../types.js';
@@ -47,7 +48,7 @@ export default function ProfileControl() {
     const user = sessionUser || currentUser;
     if (!user) return;
     try {
-      const res = await fetch('/api/account-management');
+      const res = await workspaceFetch('/api/account-management');
       if (!res.ok) return;
       const list: SafeUser[] = await res.json();
       setUsers(list);
@@ -68,7 +69,7 @@ export default function ProfileControl() {
 
   const loadUsers = async () => {
     try {
-      const res = await fetch('/api/account-management');
+      const res = await workspaceFetch('/api/account-management');
       if (res.ok) {
         const list = await res.json();
         setUsers(list);
@@ -83,7 +84,7 @@ export default function ProfileControl() {
   const loadRequests = async () => {
     if (!isAdmin) return;
     try {
-      const res = await fetch('/api/attendee-requests');
+      const res = await workspaceFetch('/api/attendee-requests');
       if (res.ok) setRequests(await res.json());
     } catch {}
   };
@@ -105,7 +106,7 @@ export default function ProfileControl() {
     if (!currentUser) return;
     setMessage('');
     try {
-      const res = await fetch('/api/account-management', {
+      const res = await workspaceFetch('/api/account-management', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: currentUser.id, name: profileName, email: profileEmail, password: profilePassword || undefined, profileImage: nextAvatar, avatarUrl: nextAvatar })
@@ -122,7 +123,7 @@ export default function ProfileControl() {
   const createGateOfficer = async () => {
     setMessage('');
     try {
-      const res = await fetch('/api/account-management', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: gateName, email: gateEmail, password: gatePassword }) });
+      const res = await workspaceFetch('/api/account-management', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: gateName, email: gateEmail, password: gatePassword }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Unable to create gate account.');
       setGateName(''); setGateEmail(''); setGatePassword('');
@@ -135,7 +136,7 @@ export default function ProfileControl() {
     if (!confirm('Delete this gate officer account?')) return;
     setMessage('');
     try {
-      const res = await fetch(`/api/account-management?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const res = await workspaceFetch(`/api/account-management?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Unable to delete gate account.');
       setMessage('Gate officer account deleted.');
@@ -147,7 +148,7 @@ export default function ProfileControl() {
     if (!currentUser) return;
     setMessage('');
     try {
-      const res = await fetch('/api/attendee-requests', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, decision, reviewedBy: currentUser.name }) });
+      const res = await workspaceFetch('/api/attendee-requests', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, decision, reviewedBy: currentUser.name }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Request review failed.');
       setMessage(decision === 'approved' ? 'Request approved and action applied.' : 'Request rejected.');

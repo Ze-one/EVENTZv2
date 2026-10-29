@@ -1,3 +1,4 @@
+import { workspaceFetch } from '../utils/auth.js';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Bell, BellRing, CheckCircle2, ShieldAlert, ShieldX, X, AlertTriangle, Clock, MailWarning } from 'lucide-react';
 import { ScanLog, ScanResult, UserRole } from '../types.js';
@@ -155,7 +156,7 @@ export default function NotificationCenter() {
   const pollScanLogs = async () => {
     if (!isAdmin) return;
     try {
-      const res = await fetch('/api/scan-logs');
+      const res = await workspaceFetch('/api/scan-logs');
       if (!res.ok) return;
       const logs: ScanLog[] = await res.json();
       const sorted = [...logs].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
