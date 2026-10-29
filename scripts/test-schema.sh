@@ -39,6 +39,7 @@ pg_check < tests/schema-legacy.sql
 pg_check < migrations/20261029_event_platform.sql
 pg_check < scripts/verify-database.sql
 pg_check < tests/schema-publishing.sql
+pg_check < tests/schema-deadlines.sql
 # A deployment administrator can safely rerun the manual migration.
 pg_check < migrations/20261029_event_platform.sql
 pg_check <<'SQL'
@@ -55,6 +56,9 @@ end $$;
 create database eventz_fresh;
 create database eventz_partial;
 create database eventz_conflict;
+create database eventz_timestamptz;
+create database eventz_timestamp;
+create database eventz_date;
 SQL
 pg_check < scripts/verify-database.sql
 
@@ -63,6 +67,7 @@ test_database=eventz_fresh
 pg_check < migrations/20261029_event_platform.sql
 pg_check < scripts/verify-database.sql
 pg_check < tests/schema-publishing.sql
+pg_check < tests/schema-deadlines.sql
 
 # Recover a partially initialized project with an absent original table.
 test_database=eventz_partial
@@ -73,6 +78,50 @@ SQL
 pg_check < migrations/20261029_event_platform.sql
 pg_check < scripts/verify-database.sql
 pg_check < tests/schema-publishing.sql
+pg_check < tests/schema-deadlines.sql
+
+# Reproduce SQLSTATE 22007 from the real deployment, then verify the complete
+# repair against native deadline types, preserving values and column defaults.
+for native_type in timestamptz timestamp date; do
+  test_database="eventz_$native_type"
+  pg_check < supabase-schema.sql
+  pg_check < tests/schema-legacy.sql
+  pg_check <<SQL
+alter table public.events alter column "registrationDeadline" type $native_type using nullif("registrationDeadline",'')::$native_type;
+alter table public.events alter column "registrationDeadline" set default '2031-06-05 23:15:30.123456-07';
+update public.events set "registrationDeadline"='2030-06-05 23:15:30.123456-07' where id='event-1';
+create table public.deadline_test_snapshot as
+select "registrationDeadline"::text as value, pg_typeof("registrationDeadline")::text as type,
+  (select pg_get_expr(adbin,adrelid) from pg_attrdef where adrelid='public.events'::regclass
+    and adnum=(select attnum from pg_attribute where attrelid='public.events'::regclass and attname='registrationDeadline')) as default_value
+from public.events where id='event-1';
+SQL
+  pg_check <<'SQL'
+do $$ begin
+  begin
+    perform 1 from public.events where "registrationDeadline"='';
+    raise exception 'Expected the earlier repair to reject a timestamp/empty-string comparison';
+  exception when invalid_datetime_format then null;
+  end;
+end $$;
+SQL
+  pg_check < migrations/20261029_event_platform.sql
+  pg_check < scripts/verify-database.sql
+  # Clear the fixture's future default only for the synthetic workflow event.
+  # The real legacy event and its original default must remain intact.
+  pg_check < tests/schema-publishing.sql
+  pg_check < tests/schema-deadlines.sql
+  pg_check < migrations/20261029_event_platform.sql
+  pg_check <<'SQL'
+do $$ begin
+  if not exists(select 1 from public.events e cross join public.deadline_test_snapshot s where e.id='event-1'
+    and e."registrationDeadline"::text=s.value and pg_typeof(e."registrationDeadline")::text=s.type
+    and s.default_value=(select pg_get_expr(adbin,adrelid) from pg_attrdef where adrelid='public.events'::regclass
+      and adnum=(select attnum from pg_attribute where attrelid='public.events'::regclass and attname='registrationDeadline')))
+  then raise exception 'The repair changed the native deadline value, type or default'; end if;
+end $$;
+SQL
+done
 
 # A data conflict must explain the problem and roll back the WHOLE migration.
 test_database=eventz_conflict
@@ -96,4 +145,4 @@ do $$ begin
   end if;
 end $$;
 SQL
-printf '%s\n' 'PASS PostgreSQL: old/fresh/partial schemas repaired; drafts, publishing, pass design, registrations, capacity, lifecycle and permissions verified; reruns preserve data; conflicts roll back'
+printf '%s\n' 'PASS PostgreSQL: old/fresh/partial schemas and native deadline types repaired; drafts, publishing, pass design, registrations, capacity, lifecycle and permissions verified; reruns preserve data; conflicts roll back'

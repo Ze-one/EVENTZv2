@@ -94,11 +94,16 @@ alter table public.users
 update public.events set "publicationStatus"=coalesce("publicationStatus",'draft'),
   category=coalesce(category,'Community'), city=coalesce(city,''), "coverImage"=coalesce("coverImage",''),
   "locationType"=coalesce("locationType",'in_person'), timezone=coalesce(timezone,'UTC'),
-  "gateOfficerIds"=coalesce("gateOfficerIds",'{}'), "registrationEnabled"=coalesce("registrationEnabled",true),
-  "registrationDeadline"=nullif("registrationDeadline",'')
+  "gateOfficerIds"=coalesce("gateOfficerIds",'{}'), "registrationEnabled"=coalesce("registrationEnabled",true)
 where "publicationStatus" is null or category is null or city is null or "coverImage" is null
   or "locationType" is null or timezone is null or "gateOfficerIds" is null
-  or "registrationEnabled" is null or "registrationDeadline"='';
+  or "registrationEnabled" is null;
+-- Legacy installations may store the deadline as date/timestamp/timestamptz.
+-- Cast only for the empty-string check and assign NULL directly. Comparing a
+-- timestamp to '' or assigning nullif(timestamp,'') raises SQLSTATE 22007.
+-- Preserve the existing column type, defaults and deadline values.
+update public.events set "registrationDeadline"=null
+where btrim("registrationDeadline"::text)='';
 alter table public.events
   alter column "publicationStatus" set default 'draft', alter column "publicationStatus" set not null,
   alter column category set default 'Community', alter column category set not null,
@@ -204,7 +209,7 @@ begin
   select * into event_row from public.events where id=event_id for update;
   if not found or event_row."publicationStatus" <> 'published' or not event_row."registrationEnabled"
     or event_row."eventDate" < current_date::text
-    or (event_row."registrationDeadline" is not null and event_row."registrationDeadline" < current_date::text)
+    or (event_row."registrationDeadline" is not null and event_row."registrationDeadline"::text < current_date::text)
   then raise exception 'Registration is closed.'; end if;
   select * into attendee from public.users where id=attendee_id;
   if not found then raise exception 'Account not found.'; end if;

@@ -215,6 +215,24 @@ test("publishing rejects invalid input, unsafe image URLs, and past events", asy
     400,
   );
 });
+test("legacy timestamp deadlines survive event and pass-design edits without losing their time", async () => {
+  for (const deadline of [`${future}T12:30:45.123456+01:00`, `${future}T12:30:45.123456`]) {
+    const created = await api('/events', owner, { ...eventBody, registrationDeadline: deadline });
+    assert.equal(created.status, 201);
+    assert.equal(created.data.registrationDeadline, deadline);
+    const updated = await api(`/events/${created.data.id}`, owner, { eventName: 'Updated deadline event' }, 'PATCH');
+    assert.equal(updated.status, 200);
+    assert.equal(updated.data.registrationDeadline, deadline);
+    const designed = await workspace(created.data, '/event', owner, { passTitle: 'Custom VIP pass' });
+    assert.equal(designed.status, 200);
+    assert.equal(designed.data.registrationDeadline, deadline);
+    assert.equal(designed.data.passTitle, 'Custom VIP pass');
+    assert.equal((await api(`/events/${created.data.id}`, owner, { registrationDeadline: '' }, 'PATCH')).data.registrationDeadline, null);
+  }
+  for (const deadline of [`${future}T99:30:00Z`, `${future}invalid`, '2026-02-30T12:00:00Z'])
+    assert.equal((await api('/events', owner, { ...eventBody, registrationDeadline: deadline })).status, 400);
+});
+
 test("unscoped legacy and Vercel-style API paths cannot expose global data", async () => {
   for (const path of [
     "/api/participants",

@@ -217,7 +217,7 @@ export default function EventEditor({
                 Registration deadline
                 <input
                   type="date"
-                  value={form.registrationDeadline}
+                  value={form.registrationDeadline.slice(0, 10)}
                   onChange={(e) =>
                     change("registrationDeadline", e.target.value)
                   }

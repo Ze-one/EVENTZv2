@@ -35,7 +35,7 @@ begin
   for required in select * from (values
     ('users','savedEventIds','text[]'), ('users','followedOrganizerIds','text[]'),
     ('events','ownerId','text'), ('events','publicationStatus','text'),
-    ('events','registrationEnabled','boolean'), ('events','registrationDeadline','text'),
+    ('events','registrationEnabled','boolean'),
     ('events','eventCapacity','integer'), ('events','gateOfficerIds','text[]'),
     ('events','customRegistrationFields','jsonb'), ('events','logoPath','text'),
     ('participants','userId','text'), ('participants','passVersion','integer'),
@@ -47,6 +47,14 @@ begin
       raise exception 'EVENTZ check failed: %.% must have type %', required.table_name,required.column_name,required.type_name;
     end if;
   end loop;
+  -- The platform accepts ISO deadline strings through PostgREST. Older
+  -- installations legitimately use native date or timestamp columns here.
+  if not exists(select 1 from pg_attribute where attrelid='public.events'::regclass
+    and attname='registrationDeadline' and not attisdropped
+    and atttypid=any(array['text'::regtype,'character varying'::regtype,'date'::regtype,
+      'timestamp without time zone'::regtype,'timestamp with time zone'::regtype])) then
+    raise exception 'EVENTZ check failed: events.registrationDeadline must be text, date or timestamp';
+  end if;
   if not has_schema_privilege('service_role','public','USAGE') then
     raise exception 'EVENTZ check failed: service_role needs public schema access';
   end if;

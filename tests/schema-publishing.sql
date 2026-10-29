@@ -4,6 +4,7 @@ insert into public.users (id,name,email,role,"passwordHash") values
   ('migration-third','Third Attendee','third@example.test','member','test-only-hash');
 insert into public.events (id,"ownerId","publicationStatus","eventName","eventDate","eventTime",venue,"organizerName",description,"passTitle","accessInstruction","footerNote","logoPath","primaryColor","accentColor",city,category,timezone,"eventCapacity","coverImage")
 values ('migration-event','migration-user','draft','Migration validation',(current_date+7)::text,'18:00','Test venue','Migration Check','Temporary database validation','Event Pass','','','','#0e1b3b','#f5aa0d','Douala','Community','Africa/Douala',2,'https://example.test/cover.webp');
+update public.events set "registrationDeadline"=null where id='migration-event';
 update public.events set "publicationStatus"='published', "updatedAt"=now() where id='migration-event';
 set role service_role;
 -- Exercise the original workspace's pass designer against actual PostgreSQL.

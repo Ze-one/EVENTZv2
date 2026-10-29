@@ -181,8 +181,15 @@ export function eventInput(body: any, previous?: EventDetails) {
     (!Number.isSafeInteger(capacity) || capacity < 1 || capacity > 1000000)
   )
     fail(400, "Capacity must be a whole number between 1 and 1,000,000.");
-  const deadline = text(input.registrationDeadline, 10) || null;
-  if (deadline && (!validDate(deadline) || (eventDate && deadline > eventDate)))
+  // Preserve native timestamp deadlines returned by legacy Supabase schemas.
+  // The date input displays their day but must not erase the time on an
+  // unrelated event or pass-design save.
+  const deadline = text(input.registrationDeadline, 80) || null;
+  const deadlineDay = deadline?.slice(0, 10);
+  const deadlineFormat = deadline && (deadline.length === 10 ||
+    /^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d{1,6})?)?(Z|[+-]([01]\d|2[0-3]):[0-5]\d)?$/.test(deadline));
+  if (deadline && (!deadlineFormat || !validDate(deadlineDay!) ||
+    !Number.isFinite(Date.parse(deadline)) || (eventDate && deadlineDay! > eventDate)))
     fail(400, "Registration deadline must be on or before the event date.");
   const timezone = text(input.timezone, 80) || "UTC";
   try {
