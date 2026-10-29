@@ -49,6 +49,7 @@ import type {
   WorkspaceEvent,
 } from "./types.js";
 import EventEditor from "./EventEditor.js";
+import BrandLogo from "./BrandLogo.js";
 import {
   EVENTZ_SESSION_TOKEN_KEY,
   WORKSPACE_EVENT_KEY,
@@ -247,8 +248,8 @@ export default function PlatformApp() {
   return (
     <div className="platform">
       <header className="p-topbar">
-        <Link className="p-wordmark" to="/" aria-label="EVENTZ home">
-          eventz<span>✳</span>
+        <Link className="p-brand-link" to="/" aria-label="EVENTZ home">
+          <BrandLogo />
         </Link>
         <span className="p-top-tagline">GOOD PEOPLE. GREAT MOMENTS.</span>
         <div className="p-top-actions">
@@ -326,7 +327,9 @@ export default function PlatformApp() {
             )}
           </div>
           <div className="p-sidebar-promo">
-            <div className="p-promo-symbol">✳</div>
+            <div className="p-promo-symbol" aria-hidden="true">
+              <Ticket size={28} strokeWidth={1.5} />
+            </div>
             <h3>
               Be the reason
               <br />
@@ -351,7 +354,7 @@ export default function PlatformApp() {
           {page}
           <footer className="p-footer">
             <span>Made for moments that matter.</span>
-            <span className="p-wordmark">eventz✳</span>
+            <BrandLogo className="p-footer-logo" />
           </footer>
         </main>
       </div>
@@ -404,7 +407,7 @@ function Discovery({ mode, ...actions }: Actions & { mode: string }) {
         <section className="p-hero">
           <div className="p-hero-copy">
             <span className="p-eyebrow">
-              <span className="p-live-dot" /> LESS SCROLLING. MORE LIVING.
+              <span className="p-live-dot" /> REAL EVENTS. REAL CONNECTIONS.
             </span>
             <h1>
               Find your people.
@@ -417,26 +420,39 @@ function Discovery({ mode, ...actions }: Actions & { mode: string }) {
               Come for the experience. Stay for the connections.
             </p>
             <a className="p-hero-link" href="#events">
-              Find your next thing <ArrowDown size={17} />
+              Explore the possibilities <ArrowUpRight size={17} />
             </a>
           </div>
           <div className="p-hero-art" aria-hidden="true">
-            <div className="p-hero-disc">
-              <span>
-                GET
-                <br />
-                OUT
-                <br />
-                <i>THERE.</i>
+            <div className="p-hero-orbit" />
+            <div className="p-hero-ticket-back" />
+            <div className="p-hero-ticket">
+              <span className="p-hero-ticket-label">
+                <Ticket size={17} /> YOUR NEXT EXPERIENCE
               </span>
+              <div className="p-hero-ticket-title">
+                GREAT
+                <br />
+                MOMENTS
+                <br />
+                <em>START HERE.</em>
+              </div>
+              <div className="p-hero-ticket-divider" />
+              <div className="p-hero-ticket-footer">
+                <span>
+                  SHOW UP.
+                  <br />
+                  <b>FEEL CONNECTED.</b>
+                </span>
+                <ArrowUpRight size={32} strokeWidth={1.25} />
+              </div>
             </div>
             <span className="p-hero-sticker p-sticker-top">
-              <Sparkles size={17} /> More real-life energy
+              <CheckCircle2 size={17} /> One pass. A new possibility.
             </span>
             <span className="p-hero-sticker p-sticker-bottom">
               <Users size={18} /> Your kind of people
             </span>
-            <div className="p-hero-star">✳</div>
           </div>
         </section>
       ) : (
@@ -654,7 +670,9 @@ function AuthPage({
           <br />
           Or bring them together yourself.
         </p>
-        <div className="p-auth-symbol">✳</div>
+        <div className="p-auth-symbol" aria-hidden="true">
+          <Ticket size={210} strokeWidth={0.75} />
+        </div>
       </div>
       <form
         className="p-auth-form"
@@ -1423,7 +1441,7 @@ function PassDialog({
       >
         <X />
       </button>
-      <span className="p-wordmark">eventz✳</span>
+      <BrandLogo className="p-pass-logo" />
       <span className="p-eyebrow">YOUR WAY IN</span>
       <h2>{ticket.event.eventName}</h2>
       <p>

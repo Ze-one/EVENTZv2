@@ -34,6 +34,10 @@ npm run build
 
 Registrations in this release are confirmed immediately. Paid tickets, waitlists, manual registration approval, comments, direct messages, notifications/reminder delivery, password recovery, and email verification are future work. In-app passes work without an email provider. Optional existing email delivery requires Brevo or SMTP; its legacy RSVP links are not a supported platform workflow yet.
 
+## Brand identity
+
+The supplied EVENTZ logo is used intact in the public header, footer, ticket wallet and existing organizer workspace. The platform palette uses navy `#0e1b3b`, gold `#f5aa0d`, blue `#1d4c84`, and white. `src/platform/BrandLogo.tsx` reuses `public/assets/eventz-official-logo.png`; `src/platform/platform.css` defines the responsive layout, typography and event-card treatments. New events use the same navy and gold as their initial pass colors; existing customized pass designs are preserved.
+
 ## Data and authorization
 
 The Express gateway owns authentication and authorization. New passwords use salted scrypt; existing SHA-256 password records remain readable for compatibility. Sessions are signed, and ownership is checked on the server for every workspace request. Caller-supplied roles, owner IDs, and event IDs cannot grant access to someone else's data.

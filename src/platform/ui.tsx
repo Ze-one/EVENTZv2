@@ -195,12 +195,12 @@ export function EventArtwork({
             {event.category || "Community"}
             <br />
             <b>
-              IN GOOD
+              BE PART
               <br />
-              COMPANY.
+              OF IT.
             </b>
           </span>
-          <Sparkles
+          <Ticket
             className="p-art-spark"
             size={large ? 98 : 62}
             strokeWidth={1}
@@ -233,6 +233,10 @@ export function EventCard({
         >
           <Bookmark size={19} fill={saved ? "currentColor" : "none"} />
         </button>
+        <div className="p-card-date" aria-label={dateLabel(event.eventDate)}>
+          <span>{dateLabel(event.eventDate, { month: "short" })}</span>
+          <strong>{dateLabel(event.eventDate, { day: "numeric" })}</strong>
+        </div>
         <span className="p-free">Free entry</span>
       </div>
       <div className="p-event-body">
