@@ -684,6 +684,23 @@ test("cover uploads reject unauthenticated, oversized and disguised non-image fi
   );
 });
 
+test("database readiness returns 503 for an outdated schema while liveness stays available", async (t) => {
+  const { db } = await import("../src/server/db.js");
+  const { databaseFailure } = await import("../src/server/errors.js");
+  assert.equal((await request('/api/ready')).data.database, 'ready');
+  t.mock.method(console, 'error', () => {});
+  const failure = t.mock.method(db, 'checkReadiness', async () => {
+    throw databaseFailure({ code: 'PGRST204', message: 'Private provider diagnostic' }, 'readiness.events');
+  });
+  const result = await request('/api/ready');
+  assert.equal(result.status, 503);
+  assert.equal(result.data.code, 'DATABASE_SCHEMA_OUTDATED');
+  assert.doesNotMatch(JSON.stringify(result.data), /Private provider/);
+  assert.equal((await request('/api/health')).data.ok, true);
+  failure.mock.restore();
+  assert.equal((await request('/api/ready')).status, 200);
+});
+
 test("publishing returns a specific database-migration error without leaking provider details", async (t) => {
   const { db } = await import("../src/server/db.js");
   const { databaseFailure } = await import("../src/server/errors.js");

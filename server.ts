@@ -44,6 +44,10 @@ app.use(express.json({ limit: '10mb' }));
 app.use('/api', (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 app.use('/api/platform', platformRouter);
 app.get('/api/health', (_req, res) => res.json({ ok: true, mode: db.useSupabase ? 'supabase' : 'local' }));
+app.get('/api/ready', asyncRoute(async (_req, res) => {
+  await db.checkReadiness();
+  res.json({ ok: true, mode: db.useSupabase ? 'supabase' : 'local', database: 'ready' });
+}));
 // All legacy management routes pass through the same event authorization boundary.
 app.use('/api', asyncRoute(async (req, res, next) => {
   const match = req.url.match(/^\/workspace\/([^/?]+)(\/[^?]*)?(\?.*)?$/);

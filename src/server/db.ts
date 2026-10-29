@@ -11,6 +11,7 @@ dotenv.config({ path: ['.env.local', '.env'] });
 import crypto from 'crypto';
 import { currentEventId } from './event-scope.js';
 import { AppError, databaseFailure } from './errors.js';
+import { DatabaseReadiness } from './database-readiness.js';
 import { hashPassword, passwordMatches } from './passwords.js';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { User, EventDetails, Participant, ScanLog, UserRole, PassStatus, EmailLog } from '../types.js';
@@ -149,6 +150,12 @@ export class DB {
     : structuredClone(defaultDb);
   private supabase: SupabaseClient | null = null;
   public useSupabase = false;
+  private readiness?: DatabaseReadiness;
+
+  async checkReadiness() {
+    this.readiness ??= new DatabaseReadiness(this.supabase);
+    await this.readiness.check();
+  }
 
   constructor(options: { client?: SupabaseClient } = {}) {
     if (options.client) { this.supabase = options.client; this.useSupabase = true; return; }

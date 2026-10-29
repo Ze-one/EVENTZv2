@@ -45,12 +45,15 @@ For Supabase, the server uses its service-role key to prepare a dedicated public
 If both actions fail after upgrading from the old single-event app, apply the platform schema update to the **same Supabase project configured in Vercel**:
 
 1. Open that project's SQL editor.
-2. Paste and run the complete `migrations/20261029_event_platform.sql` file from this version. For a completely new project, run `supabase-schema.sql` first.
-3. Confirm the query succeeds, refresh the app, and try saving or publishing again. The script refreshes PostgREST's schema cache automatically.
+2. Paste and run the complete `migrations/20261029_event_platform.sql` file from this version as the database owner. This is a standalone repair for existing, partially initialized and new projects; there is no separate baseline step. The final result must say **EVENTZ database repair completed**.
+3. Run `scripts/verify-database.sql` in the same SQL editor. It checks all application tables and columns, important column types, server permissions, browser access restrictions, registration function, capacity trigger and unique indexes. It is read-only and must return **EVENTZ database checks passed**. A nonzero `legacy_events_without_owner` means those older events still need an explicit owner assignment; the repair never assigns them to an arbitrary account.
+4. Refresh the app and try saving a draft and publishing. The repair refreshes PostgREST's schema cache automatically. Recheck Vercel's `SUPABASE_URL` if the database checks pass but the app still reports a missing schema: the deployment may point to a different project.
 
-The migration is rerunnable and preserves existing events and registrations. It has been tested against PostgreSQL with Supabase-style roles and `pgcrypto` in the `extensions` schema. Run `npm run test:schema` to repeat this check in an isolated Docker container with no network access or published database ports. No production database is contacted by the test.
+The migration runs in one transaction and is rerunnable. It preserves existing accounts, events, registrations and custom pass designs, repairs nullable platform defaults left by older versions, and stops with an actionable error if duplicate emails or registrations would break the required unique indexes. It does not delete conflicting records. Run `npm run test:schema` to check old, fresh and partially initialized schemas in an isolated Docker container with no network access or published database ports. This exercises draft saving, publishing, pass-design persistence, registrations, capacity, pass reactivation and workspace logs, verifies access restrictions, and checks rollback on data conflicts. No production database is contacted by the test.
 
 The API now distinguishes missing migrations, incompatible columns and database access errors, with a safe reference code. The server logs the reference and provider error code, not request bodies or credentials. Generic unexpected errors remain private. An event's response metadata is prepared before writing so a metadata failure cannot create an event and then tell the organizer that saving failed.
+
+`/api/health` checks server liveness. Use **`/api/ready`** to check the deployed database: it validates every application column through the configured Supabase API and probes the registration function with a nonexistent event ID, without reading personal data or writing records. It returns HTTP 503 with a safe error code if the schema, API cache or database access is unavailable. Results are shared and cached for 15 seconds per server instance. The SQL verification remains necessary to check database types, write grants, indexes, triggers and browser restrictions.
 
 If the database reports missing permissions, check the server-side `SUPABASE_SERVICE_ROLE_KEY` setting in Vercel and redeploy after changing environment variables. A database migration cannot be applied by changing frontend code or reloading the app.
 
@@ -70,7 +73,7 @@ JSON storage supports a **single server process** for local development or a dur
 
 ## Supabase and production
 
-For a new database, apply `supabase-schema.sql`, then `migrations/20261029_event_platform.sql` in the Supabase SQL editor as the database owner. For an existing installation, review and apply the migration after backing up the database. It adds ownership, publication, account preferences, registration fields, and pass lifecycle tables. It also restricts direct browser access to application tables; application access must go through the server.
+Apply the complete `migrations/20261029_event_platform.sql` in the Supabase SQL editor as the database owner, then run the read-only `scripts/verify-database.sql`. The repair supports both new projects and existing installations. Review the changes and keep a database backup for an existing installation. The historical `supabase-schema.sql` describes the original tables; it is not the current complete platform schema. The repair adds ownership, publication, account preferences, registration fields, and pass lifecycle tables. It also restricts direct browser access to application tables; application access must go through the server.
 
 The migration preserves `event-1` under `user-admin` only when that account exists. Other legacy events need an explicitly assigned owner before they can be managed or published. Resolve pre-existing case-insensitive duplicate user emails before creating the new email index; the migration fails rather than deleting accounts or registrations.
 

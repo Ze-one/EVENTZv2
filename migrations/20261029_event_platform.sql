@@ -1,11 +1,58 @@
--- Apply supabase-schema.sql first for a new Supabase project, then this migration.
+-- Complete EVENTZ database repair for an existing OR a new Supabase project.
 -- Run as the database owner. The application uses a server-only service-role key.
+-- One transaction: failures roll back the repair without deleting existing data.
 begin;
+set local lock_timeout = '15s';
+select pg_advisory_xact_lock(20261029, 1);
+
+-- Include the original tables so a fresh or partially initialized project needs
+-- only this file. Existing tables and their records are retained.
+create table if not exists public.users (
+  id text primary key, name text not null, email text not null unique,
+  role text not null, "passwordHash" text not null,
+  "createdAt" timestamptz not null default now()
+);
+create table if not exists public.events (
+  id text primary key, "eventName" text not null, "eventDate" text not null,
+  "eventTime" text not null, venue text not null, "organizerName" text not null,
+  description text not null, "passTitle" text not null,
+  "accessInstruction" text not null, "footerNote" text not null,
+  "logoPath" text not null, "primaryColor" text not null, "accentColor" text not null,
+  "showPhone" boolean not null default true, "showEmail" boolean not null default true,
+  "showCategory" boolean not null default true, "showOrganization" boolean not null default true,
+  "createdAt" timestamptz not null default now(), "updatedAt" timestamptz not null default now()
+);
+create table if not exists public.participants (
+  id text primary key, "eventId" text not null, "fullName" text not null,
+  phone text not null default '', email text not null default '',
+  organization text not null default '', category text not null default '',
+  "passId" text not null unique, status text not null,
+  "checkedInAt" timestamptz, "checkedInBy" text,
+  "createdAt" timestamptz not null default now(), "updatedAt" timestamptz not null default now()
+);
+create table if not exists public."scanLogs" (
+  id text primary key, "eventId" text not null, "participantId" text,
+  "passId" text not null, "scanResult" text not null, "scannedBy" text not null,
+  "deviceInfo" text not null, "ipAddress" text not null,
+  "createdAt" timestamptz not null default now()
+);
+create table if not exists public."emailLogs" (
+  id text primary key, "eventId" text not null, "participantId" text not null,
+  "participantName" text not null, "recipientEmail" text not null,
+  subject text not null, status text not null, "sentAt" timestamptz,
+  "errorMessage" text, "createdAt" timestamptz not null default now()
+);
 alter table public.users
   add column if not exists "profileImage" text not null default '',
   add column if not exists bio text not null default '',
   add column if not exists "savedEventIds" text[] not null default '{}',
   add column if not exists "followedOrganizerIds" text[] not null default '{}';
+-- Fail with an actionable error instead of silently dropping legacy accounts.
+do $$ begin
+  if exists(select 1 from public.users group by lower(email) having count(*) > 1) then
+    raise exception 'EVENTZ repair stopped: duplicate account emails differ only by letter case. Resolve the duplicates and rerun. No accounts have been deleted.';
+  end if;
+end $$;
 create unique index if not exists users_email_case_insensitive on public.users (lower(email));
 alter table public.events
   add column if not exists "ownerId" text references public.users(id),
@@ -34,6 +81,33 @@ alter table public.events
   add column if not exists "dashboardMediaOverlay" numeric,
   add column if not exists "dashboardMediaAutoplay" boolean,
   add column if not exists "dashboardMediaLoop" boolean;
+-- Earlier releases allowed these columns to exist with NULL values. Merely
+-- adding IF NOT EXISTS does not repair their defaults or registration behavior.
+update public.users set "profileImage"=coalesce("profileImage",''), bio=coalesce(bio,''),
+  "savedEventIds"=coalesce("savedEventIds",'{}'), "followedOrganizerIds"=coalesce("followedOrganizerIds",'{}')
+where "profileImage" is null or bio is null or "savedEventIds" is null or "followedOrganizerIds" is null;
+alter table public.users
+  alter column "profileImage" set default '', alter column "profileImage" set not null,
+  alter column bio set default '', alter column bio set not null,
+  alter column "savedEventIds" set default '{}', alter column "savedEventIds" set not null,
+  alter column "followedOrganizerIds" set default '{}', alter column "followedOrganizerIds" set not null;
+update public.events set "publicationStatus"=coalesce("publicationStatus",'draft'),
+  category=coalesce(category,'Community'), city=coalesce(city,''), "coverImage"=coalesce("coverImage",''),
+  "locationType"=coalesce("locationType",'in_person'), timezone=coalesce(timezone,'UTC'),
+  "gateOfficerIds"=coalesce("gateOfficerIds",'{}'), "registrationEnabled"=coalesce("registrationEnabled",true),
+  "registrationDeadline"=nullif("registrationDeadline",'')
+where "publicationStatus" is null or category is null or city is null or "coverImage" is null
+  or "locationType" is null or timezone is null or "gateOfficerIds" is null
+  or "registrationEnabled" is null or "registrationDeadline"='';
+alter table public.events
+  alter column "publicationStatus" set default 'draft', alter column "publicationStatus" set not null,
+  alter column category set default 'Community', alter column category set not null,
+  alter column city set default '', alter column city set not null,
+  alter column "coverImage" set default '', alter column "coverImage" set not null,
+  alter column "locationType" set default 'in_person', alter column "locationType" set not null,
+  alter column timezone set default 'UTC', alter column timezone set not null,
+  alter column "gateOfficerIds" set default '{}', alter column "gateOfficerIds" set not null,
+  alter column "registrationEnabled" set default true, alter column "registrationEnabled" set not null;
 -- Preserve the original workspace only where its legacy owner actually exists.
 update public.events set "ownerId" = 'user-admin', "gateOfficerIds" = case when exists(select 1 from public.users where id='user-gate') then array['user-gate'] else '{}' end
 where id='event-1' and "ownerId" is null and exists(select 1 from public.users where id='user-admin');
@@ -65,9 +139,18 @@ alter table public.participants
 update public.participants set "passVersion"=1 where "passVersion" is null;
 update public.participants set "accessCount"=0 where "accessCount" is null;
 update public.participants set "presenceState"='outside' where "presenceState" is null;
+update public.participants set "entryMode"='single' where "entryMode" is null;
+update public.participants set "allowedDays"='{}' where "allowedDays" is null;
 alter table public.participants alter column "passVersion" set default 1, alter column "passVersion" set not null,
   alter column "accessCount" set default 0, alter column "accessCount" set not null,
-  alter column "presenceState" set default 'outside', alter column "presenceState" set not null;
+  alter column "presenceState" set default 'outside', alter column "presenceState" set not null,
+  alter column "entryMode" set default 'single', alter column "entryMode" set not null,
+  alter column "allowedDays" set default '{}', alter column "allowedDays" set not null;
+do $$ begin
+  if exists(select 1 from public.participants where "userId" is not null group by "eventId","userId" having count(*) > 1) then
+    raise exception 'EVENTZ repair stopped: an account has multiple registrations for one event. Resolve the duplicates and rerun. No registrations have been deleted.';
+  end if;
+end $$;
 create unique index if not exists one_registration_per_account on public.participants ("eventId", "userId") where "userId" is not null;
 create index if not exists platform_discovery on public.events ("publicationStatus", "eventDate");
 create index if not exists participant_event on public.participants ("eventId");
@@ -140,6 +223,7 @@ end;
 $$;
 revoke all on function public.register_event(text,text) from public, anon, authenticated;
 grant execute on function public.register_event(text,text) to service_role;
+grant usage on schema public to service_role;
 -- Browsers use the authenticated Express gateway, never direct table access.
 -- Revoke existing grants as well as enabling RLS, including legacy policies.
 do $$
@@ -147,7 +231,7 @@ declare table_name text;
 begin
   foreach table_name in array array['users','events','participants','scanLogs','emailLogs','passHistory','passSecurityAlerts'] loop
     execute format('alter table public.%I enable row level security', table_name);
-    execute format('revoke all on table public.%I from anon, authenticated', table_name);
+    execute format('revoke all on table public.%I from public, anon, authenticated', table_name);
     execute format('grant select, insert, update, delete on table public.%I to service_role', table_name);
   end loop;
 end;
@@ -155,3 +239,4 @@ $$;
 commit;
 -- Refresh PostgREST immediately after the schema change.
 notify pgrst, 'reload schema';
+select 'EVENTZ database repair completed' as result;
