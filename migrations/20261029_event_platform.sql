@@ -133,7 +133,7 @@ begin
     update public.participants set status='Not Used', "passRevokedAt"=null, "passVersion"=coalesce("passVersion",1)+1, "updatedAt"=now() where id=pass.id returning * into pass;
   else
     insert into public.participants (id,"eventId","userId","fullName",email,phone,organization,category,"passId",status,"rsvpStatus")
-    values ('part-'||gen_random_uuid()::text,event_id,attendee_id,attendee.name,attendee.email,'','','General admission','EVT-'||upper(encode(gen_random_bytes(12),'hex')),'Not Used','yes') returning * into pass;
+    values ('part-'||gen_random_uuid()::text,event_id,attendee_id,attendee.name,attendee.email,'','','General admission','EVT-'||upper(replace(gen_random_uuid()::text,'-','')),'Not Used','yes') returning * into pass;
   end if;
   return to_jsonb(pass);
 end;
@@ -153,3 +153,5 @@ begin
 end;
 $$;
 commit;
+-- Refresh PostgREST immediately after the schema change.
+notify pgrst, 'reload schema';

@@ -2,7 +2,7 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative, isAbsolute } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { Server } from "node:http";
 
@@ -610,4 +610,251 @@ test("legacy Vercel function entrypoints also reject direct calls without an eve
   await legacyHandler({ method: "GET" }, response);
   assert.equal(code, 404);
   assert.equal(data.error, "Use the authenticated event workspace API.");
+});
+
+test("cover images upload from a device, persist on events, and remain publicly readable", async () => {
+  const image = await readFile(
+    join(process.cwd(), "public/assets/eventz-official-logo.png"),
+  );
+  const upload = await fetch(base + "/api/platform/uploads/cover", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${owner.sessionToken}`,
+      "Content-Type": "image/png",
+    },
+    body: new Uint8Array(image),
+  });
+  assert.equal(upload.status, 201, await upload.clone().text());
+  const cover = await upload.json();
+  const { CoverStorage } = await import("../src/server/cover-storage.js");
+  const { db } = await import("../src/server/db.js");
+  const relativeStorage = new CoverStorage(
+    null,
+    relative(process.cwd(), db.uploadDirectory),
+  );
+  assert.ok(
+    isAbsolute(await relativeStorage.localFile(cover.url.split("/").pop())),
+  );
+  assert.equal(cover.width, 1663);
+  assert.equal(cover.height, 488);
+  assert.match(
+    cover.url,
+    /^\/api\/platform\/media\/covers\/[a-f0-9-]{36}\.png$/,
+  );
+  const downloaded = await fetch(base + cover.url);
+  assert.equal(downloaded.status, 200);
+  assert.match(downloaded.headers.get("content-type")!, /image\/png/);
+  assert.match(downloaded.headers.get("cache-control")!, /immutable/);
+  assert.equal(downloaded.headers.get("x-content-type-options"), "nosniff");
+  assert.deepEqual(Buffer.from(await downloaded.arrayBuffer()), image);
+  const created = await api("/events", owner, {
+    ...eventBody,
+    coverImage: cover.url,
+    publicationStatus: "published",
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.data.coverImage, cover.url);
+  assert.equal(
+    (await api(`/events/${created.data.id}`)).data.coverImage,
+    cover.url,
+  );
+});
+
+test("cover uploads reject unauthenticated, oversized and disguised non-image files", async () => {
+  const raw = async (image: Uint8Array, signedIn = true) =>
+    fetch(base + "/api/platform/uploads/cover", {
+      method: "POST",
+      headers: {
+        "Content-Type": "image/png",
+        ...(signedIn ? { Authorization: `Bearer ${owner.sessionToken}` } : {}),
+      },
+      body: image,
+    });
+  assert.equal((await raw(new Uint8Array([1, 2, 3]), false)).status, 401);
+  const disguised = await raw(
+    new TextEncoder().encode(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><script>alert(1)</script></svg>',
+    ),
+  );
+  assert.equal(disguised.status, 415);
+  assert.equal((await raw(new Uint8Array(3 * 1024 * 1024 + 1))).status, 413);
+  assert.equal(
+    (await request("/api/platform/media/covers/not-an-image")).status,
+    404,
+  );
+});
+
+test("publishing returns a specific database-migration error without leaking provider details", async (t) => {
+  const { db } = await import("../src/server/db.js");
+  const { databaseFailure } = await import("../src/server/errors.js");
+  const logs: unknown[] = [];
+  t.mock.method(console, "error", (...args: unknown[]) => logs.push(args));
+  const beforeCount = (await db.getEvents()).length;
+  const failure = t.mock.method(db, "createEvent", async () => {
+    throw databaseFailure(
+      {
+        code: "PGRST204",
+        message:
+          "A private diagnostic containing a token must never be returned",
+      },
+      "createEvent",
+    );
+  });
+  const response = await api("/events", owner, {
+    ...eventBody,
+    publicationStatus: "published",
+  });
+  failure.mock.restore();
+  assert.equal(response.status, 503);
+  assert.equal(response.data.code, "DATABASE_SCHEMA_OUTDATED");
+  assert.match(response.data.error, /database migration/i);
+  assert.ok(response.data.requestId);
+  assert.doesNotMatch(
+    JSON.stringify(response.data) + JSON.stringify(logs),
+    /private diagnostic|containing a token/,
+  );
+  assert.equal((await db.getEvents()).length, beforeCount);
+});
+
+test("a metadata failure happens before event persistence rather than creating an event and reporting failure", async (t) => {
+  const { db } = await import("../src/server/db.js");
+  t.mock.method(console, "error", () => {});
+  const beforeCount = (await db.getEvents()).length;
+  const failure = t.mock.method(db, "getParticipants", async () => {
+    throw new Error("Simulated read failure");
+  });
+  const response = await api("/events", owner, {
+    ...eventBody,
+    publicationStatus: "published",
+  });
+  failure.mock.restore();
+  assert.equal(response.status, 500);
+  assert.equal(response.data.code, "REQUEST_FAILED");
+  assert.equal((await db.getEvents()).length, beforeCount);
+});
+
+test("Supabase provider errors retain their codes through the real database adapter", async () => {
+  const { createClient } = await import("@supabase/supabase-js");
+  const { DB, db } = await import("../src/server/db.js");
+  const { AppError } = await import("../src/server/errors.js");
+  const fixture = (await db.getEvents())[0];
+  for (const [providerCode, expectedCode] of [
+    ["PGRST204", "DATABASE_SCHEMA_OUTDATED"],
+    ["42501", "DATABASE_ACCESS_DENIED"],
+  ]) {
+    const client = createClient(
+      "https://database.example.test",
+      "test-only-key",
+      {
+        global: {
+          fetch: async () =>
+            new Response(
+              JSON.stringify({
+                code: providerCode,
+                message: "Provider-only diagnostic",
+              }),
+              { status: 400, headers: { "Content-Type": "application/json" } },
+            ),
+        },
+      },
+    );
+    const isolated = new DB({ client });
+    await assert.rejects(
+      isolated.createEvent(fixture),
+      (error) =>
+        error instanceof AppError &&
+        error.status === 503 &&
+        error.code === expectedCode,
+    );
+  }
+});
+
+test("Supabase covers prepare a dedicated public bucket and use unique owner-scoped objects", async () => {
+  const { createClient } = await import("@supabase/supabase-js");
+  const { CoverStorage } = await import("../src/server/cover-storage.js");
+  const image = await readFile(
+    join(process.cwd(), "public/assets/eventz-official-logo.png"),
+  );
+  const requests: { method: string; path: string }[] = [];
+  let bucketExists = false;
+  const client = createClient("https://storage.example.test", "test-only-key", {
+    global: {
+      fetch: async (input, options) => {
+        const url = new URL(String(input)),
+          method = options?.method || "GET";
+        requests.push({ method, path: url.pathname });
+        if (url.pathname.endsWith("/bucket/eventz-covers"))
+          return new Response(
+            JSON.stringify(
+              bucketExists
+                ? { id: "eventz-covers", name: "eventz-covers", public: true }
+                : {
+                    message: "Bucket not found",
+                    statusCode: "404",
+                    error: "NotFound",
+                  },
+            ),
+            {
+              status: bucketExists ? 200 : 404,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        if (url.pathname.endsWith("/bucket") && method === "POST") {
+          bucketExists = true;
+          return new Response(JSON.stringify({ name: "eventz-covers" }), {
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (url.pathname.includes("/object/"))
+          return new Response(
+            JSON.stringify({ Key: url.pathname.split("/object/")[1] }),
+            { headers: { "Content-Type": "application/json" } },
+          );
+        throw new Error("Unexpected storage request");
+      },
+    },
+  });
+  const storage = new CoverStorage(client, join(directory, "unused"));
+  const first = await storage.upload(owner.user.id, image),
+    second = await storage.upload(owner.user.id, image);
+  assert.match(
+    first.url,
+    new RegExp(`/storage/v1/object/public/eventz-covers/${owner.user.id}/`),
+  );
+  assert.notEqual(first.url, second.url);
+  assert.equal(
+    requests.filter(
+      (request) =>
+        request.path.endsWith("/bucket") && request.method === "POST",
+    ).length,
+    1,
+  );
+});
+
+test("cover upload never makes an existing private storage bucket public", async () => {
+  const { createClient } = await import("@supabase/supabase-js");
+  const { CoverStorage } = await import("../src/server/cover-storage.js");
+  const { AppError } = await import("../src/server/errors.js");
+  const image = await readFile(
+    join(process.cwd(), "public/assets/eventz-official-logo.png"),
+  );
+  const client = createClient("https://storage.example.test", "test-only-key", {
+    global: {
+      fetch: async (_input, options) => {
+        assert.equal(options?.method || "GET", "GET");
+        return new Response(
+          JSON.stringify({ id: "eventz-covers", public: false }),
+          { headers: { "Content-Type": "application/json" } },
+        );
+      },
+    },
+  });
+  await assert.rejects(
+    new CoverStorage(client, join(directory, "unused")).upload(
+      owner.user.id,
+      image,
+    ),
+    (error) =>
+      error instanceof AppError && error.code === "COVER_STORAGE_CONFIGURATION",
+  );
 });

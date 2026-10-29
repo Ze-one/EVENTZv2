@@ -34,6 +34,26 @@ npm run build
 
 Registrations in this release are confirmed immediately. Paid tickets, waitlists, manual registration approval, comments, direct messages, notifications/reminder delivery, password recovery, and email verification are future work. In-app passes work without an email provider. Optional existing email delivery requires Brevo or SMTP; its legacy RSVP links are not a supported platform workflow yet.
 
+## Cover images
+
+The event editor accepts images from the device file picker (including connected drives exposed by the operating system), drag-and-drop, image paste, or a direct HTTPS image link. JPG, PNG and WebP source files up to 20 MB are resized in the browser to at most 1600 pixels on the longest side. The server checks the real file format, dimensions and a 3 MB upload limit. Uploads finish before event saving is enabled, and the selected cover appears in the editor preview, event page and discovery cards.
+
+For Supabase, the server uses its service-role key to prepare a dedicated public `eventz-covers` Storage bucket on the first upload. It does not make an existing private bucket public. The bucket name can be changed with `EVENTZ_COVER_BUCKET`. For local JSON development, files are saved beside the database in `eventz-uploads/` (ignored by Git); preserve that directory with the database. `EVENTZ_UPLOAD_DIR` can point to a durable upload directory on a conventional server. Image links remain available if uploads are temporarily unavailable.
+
+## Publishing or draft saving fails on Vercel
+
+If both actions fail after upgrading from the old single-event app, apply the platform schema update to the **same Supabase project configured in Vercel**:
+
+1. Open that project's SQL editor.
+2. Paste and run the complete `migrations/20261029_event_platform.sql` file from this version. For a completely new project, run `supabase-schema.sql` first.
+3. Confirm the query succeeds, refresh the app, and try saving or publishing again. The script refreshes PostgREST's schema cache automatically.
+
+The migration is rerunnable and preserves existing events and registrations. It has been tested against PostgreSQL with Supabase-style roles and `pgcrypto` in the `extensions` schema. Run `npm run test:schema` to repeat this check in an isolated Docker container with no network access or published database ports. No production database is contacted by the test.
+
+The API now distinguishes missing migrations, incompatible columns and database access errors, with a safe reference code. The server logs the reference and provider error code, not request bodies or credentials. Generic unexpected errors remain private. An event's response metadata is prepared before writing so a metadata failure cannot create an event and then tell the organizer that saving failed.
+
+If the database reports missing permissions, check the server-side `SUPABASE_SERVICE_ROLE_KEY` setting in Vercel and redeploy after changing environment variables. A database migration cannot be applied by changing frontend code or reloading the app.
+
 ## Brand identity
 
 The supplied EVENTZ logo is used intact in the public header, footer, ticket wallet and existing organizer workspace. The platform palette uses navy `#0e1b3b`, gold `#f5aa0d`, blue `#1d4c84`, and white. `src/platform/BrandLogo.tsx` reuses `public/assets/eventz-official-logo.png`; `src/platform/platform.css` defines the responsive layout, typography and event-card treatments. New events use the same navy and gold as their initial pass colors; existing customized pass designs are preserved.

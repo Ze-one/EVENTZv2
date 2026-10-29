@@ -10,6 +10,7 @@ import crypto from 'crypto';
 import { createServer } from 'node:http';
 import { createClient } from '@supabase/supabase-js';
 import { db } from './src/server/db.js';
+import { apiErrorHandler } from './src/server/errors.js';
 import { PassStatus, ScanResult } from './src/types.js';
 import { createSignedPassToken } from './src/server/pass-security.js';
 import { evaluateAccess, normalizeLocalDate, processAccessClaim, recordDeniedScan, validateSignedTokenForParticipant } from './src/server/access-control.js';
@@ -696,12 +697,7 @@ route.post('/api/participants/bulk-email', async (_req, res) => {
 });
 
 app.use('/api', (_req, res) => res.status(404).json({ error: 'API route not found.' }));
-app.use((error: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  if (res.headersSent) return;
-  const status = error.status || 500;
-  if (status >= 500) console.error('[API]', error.message);
-  res.status(status).json({ error: status >= 500 ? 'The request could not be completed. Check server configuration and try again.' : error.message });
-});
+app.use(apiErrorHandler);
 
 if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   const vite = await import('vite');

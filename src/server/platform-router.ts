@@ -2,6 +2,7 @@ import express from "express";
 import crypto from "node:crypto";
 import QRCode from "qrcode";
 import { db } from "./db.js";
+import { coverStorage, MAX_COVER_BYTES } from "./cover-storage.js";
 import { createSessionToken, requireSession } from "./session-auth.js";
 import { withEventLock } from "./event-scope.js";
 import {
@@ -54,7 +55,12 @@ function validDate(value: string) {
 }
 export function imageUrl(value: unknown) {
   const url = text(value, 2000);
-  if (!url || /^\/assets\/[\w./-]+$/.test(url)) return url;
+  if (
+    !url ||
+    /^\/assets\/[\w./-]+$/.test(url) ||
+    /^\/api\/platform\/media\/covers\/[a-f0-9-]{36}\.(jpg|png|webp)$/.test(url)
+  )
+    return url;
   try {
     if (new URL(url).protocol === "https:") return url;
   } catch {}
@@ -231,6 +237,33 @@ const post = (path: string, handler: any) =>
 const put = (path: string, handler: any) =>
   platformRouter.put(path, asyncRoute(handler));
 
+platformRouter.post(
+  "/uploads/cover",
+  asyncRoute(async (req, res, next) => {
+    res.locals.account = await account(req);
+    next();
+  }),
+  express.raw({
+    type: ["image/jpeg", "image/png", "image/webp", "application/octet-stream"],
+    limit: MAX_COVER_BYTES,
+  }),
+  asyncRoute(async (req, res) => {
+    if (!Buffer.isBuffer(req.body))
+      fail(415, "Choose a JPG, PNG or WebP image.");
+    res
+      .status(201)
+      .json(await coverStorage.upload(res.locals.account.id, req.body));
+  }),
+);
+get("/media/covers/:filename", async (req, res, next) => {
+  const file = await coverStorage.localFile(req.params.filename);
+  res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.sendFile(file, (error) => {
+    if (error) next(error);
+  });
+});
+
 post("/auth/register", async (req, res) => {
   authLimit(req);
   const name = text(req.body?.name, 100),
@@ -335,7 +368,7 @@ post("/events", async (req, res) => {
   const user = await account(req),
     now = new Date().toISOString();
   const fields = eventInput(req.body);
-  const event = await db.createEvent({
+  const event: EventDetails = {
     ...fields,
     id: `event-${crypto.randomUUID()}`,
     ownerId: user.id,
@@ -353,8 +386,10 @@ post("/events", async (req, res) => {
     showOrganization: false,
     createdAt: now,
     updatedAt: now,
-  });
-  res.status(201).json(await publicEvent(event));
+  };
+  const response = await publicEvent(event);
+  await db.createEvent(event);
+  res.status(201).json(response);
 });
 platformRouter.patch(
   "/events/:eventId",
@@ -371,9 +406,15 @@ platformRouter.patch(
           409,
           "Capacity cannot be below the number of registered attendees.",
         );
-      return db.updateEvent(event.id, { ...fields, organizerName: user.name });
+      const response = await publicEvent({
+        ...event,
+        ...fields,
+        organizerName: user.name,
+      });
+      await db.updateEvent(event.id, { ...fields, organizerName: user.name });
+      return response;
     });
-    res.json(await publicEvent(updated));
+    res.json(updated);
   }),
 );
 get("/me/events/:eventId", async (req, res) => {

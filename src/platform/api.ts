@@ -6,14 +6,22 @@ export async function platformRequest<T>(
 ): Promise<T> {
   const token = localStorage.getItem(EVENTZ_SESSION_TOKEN_KEY);
   const headers = new Headers(options.headers);
-  if (options.body) headers.set("Content-Type", "application/json");
+  if (typeof options.body === "string" && !headers.has("Content-Type"))
+    headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
   const response = await fetch(`/api/platform${path}`, { ...options, headers });
-  const data = await response.json();
+  const data = await response
+    .json()
+    .catch(() => ({
+      error:
+        response.status === 413
+          ? "That image is too large. Choose a smaller file."
+          : "The server did not return a valid response. Please try again.",
+    }));
   if (!response.ok)
     throw Object.assign(
       new Error(data.error || "Something went wrong. Please try again."),
-      { status: response.status },
+      { status: response.status, code: data.code, requestId: data.requestId },
     );
   return data;
 }

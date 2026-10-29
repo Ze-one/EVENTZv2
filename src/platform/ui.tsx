@@ -182,6 +182,9 @@ export function EventArtwork({
         <img
           src={event.coverImage}
           alt=""
+          onLoad={(event) =>
+            event.currentTarget.style.removeProperty("display")
+          }
           onError={(event) => {
             event.currentTarget.style.display = "none";
           }}

@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowUpRight, Eye, Save } from "lucide-react";
 import { platformRequest, body } from "./api.js";
 import { categories, EventArtwork, Link, navigate, PageTitle } from "./ui.js";
 import type { PublicEvent } from "./types.js";
+import CoverImagePicker from "./CoverImagePicker.js";
 
 export default function EventEditor({
   event,
@@ -31,11 +32,17 @@ export default function EventEditor({
   });
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const [uploading, setUploading] = useState(false),
+    [errorCode, setErrorCode] = useState("");
+  const [errorReference, setErrorReference] = useState("");
   const change = (key: keyof typeof form, value: any) =>
     setForm((previous) => ({ ...previous, [key]: value }));
   const save = async (publicationStatus: string) => {
+    if (busy || uploading) return;
     setBusy(true);
     setError("");
+    setErrorCode("");
+    setErrorReference("");
     try {
       const result = await platformRequest<PublicEvent>(
         event ? `/events/${event.id}` : "/events",
@@ -51,6 +58,8 @@ export default function EventEditor({
       navigate(`/events/${result.id}`);
     } catch (error: any) {
       setError(error.message);
+      setErrorCode(error.code || "");
+      setErrorReference(error.requestId || "");
     } finally {
       setBusy(false);
     }
@@ -185,15 +194,12 @@ export default function EventEditor({
           <section>
             <span className="p-step">03 / THE DETAILS</span>
             <h2>Open the doors</h2>
-            <label>
-              Cover image URL <small>Optional · HTTPS</small>
-              <input
-                type="url"
-                value={form.coverImage}
-                onChange={(e) => change("coverImage", e.target.value)}
-                placeholder="Leave blank for an EVENTZ category cover"
-              />
-            </label>
+            <CoverImagePicker
+              value={form.coverImage}
+              onChange={(value) => change("coverImage", value)}
+              onBusyChange={setUploading}
+              disabled={busy || uploading}
+            />
             <div className="p-form-row">
               <label>
                 Capacity <small>Optional</small>
@@ -236,18 +242,34 @@ export default function EventEditor({
           {error && (
             <div role="alert" className="p-error">
               {error}
+              {errorReference && (
+                <small className="p-save-error-reference">
+                  Reference: {errorReference}
+                </small>
+              )}
+              {errorCode === "DATABASE_SCHEMA_OUTDATED" && (
+                <p className="p-save-error-help">
+                  Your form is still here. The site administrator needs to run
+                  the event-platform database migration in Supabase before you
+                  retry.
+                </p>
+              )}
             </div>
           )}
           <div className="p-editor-actions">
             <button
               className="p-button p-button-outline"
-              disabled={busy}
+              disabled={busy || uploading}
               type="button"
               onClick={() => save("draft")}
             >
               <Save size={16} /> Save draft
             </button>
-            <button className="p-button" type="submit" disabled={busy}>
+            <button
+              className="p-button"
+              type="submit"
+              disabled={busy || uploading}
+            >
               {busy
                 ? "Saving…"
                 : event?.publicationStatus === "published"
@@ -260,7 +282,7 @@ export default function EventEditor({
             <button
               type="button"
               className="p-danger-link"
-              disabled={busy}
+              disabled={busy || uploading}
               onClick={() => {
                 if (
                   window.confirm(

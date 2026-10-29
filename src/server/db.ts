@@ -10,6 +10,7 @@ import path from 'path';
 dotenv.config({ path: ['.env.local', '.env'] });
 import crypto from 'crypto';
 import { currentEventId } from './event-scope.js';
+import { AppError, databaseFailure } from './errors.js';
 import { hashPassword, passwordMatches } from './passwords.js';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { User, EventDetails, Participant, ScanLog, UserRole, PassStatus, EmailLog } from '../types.js';
@@ -149,7 +150,8 @@ export class DB {
   private supabase: SupabaseClient | null = null;
   public useSupabase = false;
 
-  constructor() {
+  constructor(options: { client?: SupabaseClient } = {}) {
+    if (options.client) { this.supabase = options.client; this.useSupabase = true; return; }
     if ((process.env.NODE_ENV === 'production' || process.env.VERCEL) && !process.env.SUPABASE_URL && !process.env.EVENTZ_DB_FILE) throw new Error('Production requires Supabase or EVENTZ_DB_FILE on a durable volume.');
     this.initSupabase();
     if (!this.useSupabase) {
@@ -176,8 +178,7 @@ export class DB {
           console.error('[DB] Error seeding Supabase:', err);
         });
       } catch (err) {
-        console.error('[DB] Failed to initialize Supabase client:', err);
-        this.useSupabase = false;
+        throw new AppError(503, 'The server database connection is not configured correctly.', 'DATABASE_CONFIGURATION');
       }
     } else {
       console.log('[DB] Supabase credentials not found in environment. Using local JSON database.');
@@ -275,6 +276,12 @@ export class DB {
     }
   }
 
+  get storageClient() { return this.supabase; }
+
+  get uploadDirectory() {
+    return process.env.EVENTZ_UPLOAD_DIR || path.join(path.dirname(DB_FILE), 'eventz-uploads');
+  }
+
   private inScope(row: { eventId: string }) {
     return !currentEventId() || row.eventId === currentEventId();
   }
@@ -291,7 +298,7 @@ export class DB {
         .eq('id', expected.id).eq('passId', expected.passId).eq('status', expected.status)
         .eq('passVersion', expected.passVersion || 1).eq('accessCount', expected.accessCount || 0)
         .eq('presenceState', expected.presenceState || 'outside').select().maybeSingle();
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'transitionParticipant');
       return data || undefined;
     }
     const actual = this.data.participants.find(p => p.id === expected.id && this.inScope(p));
@@ -310,7 +317,7 @@ export class DB {
   async getUserById(id: string): Promise<User | undefined> {
     if (this.supabase) {
       const { data, error } = await this.supabase.from('users').select('*').eq('id', id).maybeSingle();
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'getUserById');
       return data || undefined;
     }
     return this.data.users.find(user => user.id === id);
@@ -319,7 +326,7 @@ export class DB {
   async updateUser(id: string, updates: Partial<Pick<User, 'name' | 'bio' | 'profileImage' | 'savedEventIds' | 'followedOrganizerIds'>>): Promise<User> {
     if (this.supabase) {
       const { data, error } = await this.supabase.from('users').update(updates).eq('id', id).select().single();
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'updateUser');
       return data;
     }
     const user = this.data.users.find(user => user.id === id);
@@ -332,7 +339,7 @@ export class DB {
   async createEvent(event: EventDetails): Promise<EventDetails> {
     if (this.supabase) {
       const { error } = await this.supabase.from('events').insert(event);
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'createEvent');
     } else {
       this.data.events.push(event);
       this.saveLocal();
@@ -344,7 +351,7 @@ export class DB {
     // Postgres locks the event row for capacity and duplicate checks across instances.
     if (this.supabase) {
       const { data, error } = await this.supabase.rpc('register_event', { event_id: event.id, attendee_id: user.id });
-      if (error) throw Object.assign(new Error(error.message), { status: 409 });
+      if (error) throw databaseFailure(error, 'registerForEvent');
       return data as Participant;
     }
     const existing = this.data.participants.find(p => p.eventId === event.id && p.userId === user.id);
@@ -361,7 +368,7 @@ export class DB {
     if (this.useSupabase && this.supabase) {
       const { data, error } = await this.supabase.from('users').select('*');
       if (!error && data) return data as User[];
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'getUsers');
     }
     return this.data.users;
   }
@@ -374,7 +381,7 @@ export class DB {
         .eq('email', email.trim())
         .maybeSingle();
       if (!error && data) return data as User;
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'getUserByEmail');
       return undefined;
     }
     return this.data.users.find(u => u.email.toLowerCase() === email.toLowerCase());
@@ -400,7 +407,7 @@ export class DB {
     if (this.useSupabase && this.supabase) {
       const { error } = await this.supabase.from('users').insert(newUser);
       if (!error) return newUser;
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'createUser');
     }
 
     this.data.users.push(newUser);
@@ -413,7 +420,7 @@ export class DB {
     if (this.useSupabase && this.supabase) {
       const { data, error } = await this.supabase.from('events').select('*');
       if (!error && data) return data as EventDetails[];
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'getEvents');
     }
     return this.data.events;
   }
@@ -427,7 +434,7 @@ export class DB {
         .maybeSingle();
       if (!error && data) return data as EventDetails;
 
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'getEvent');
       return undefined;
     }
     return this.data.events.find(e => e.id === id);
@@ -448,7 +455,7 @@ export class DB {
         return data as EventDetails;
       }
 
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'updateEvent');
       throw new Error('Event not found.');
     }
 
@@ -494,7 +501,7 @@ export class DB {
     if (this.useSupabase && this.supabase) {
       const { data, error } = await this.scoped(this.supabase.from('participants').select('*'));
       if (!error && data) return data as Participant[];
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'getParticipants');
     }
     return this.data.participants.filter(p => this.inScope(p));
   }
@@ -505,7 +512,7 @@ export class DB {
         .eq('id', id)
         .maybeSingle();
       if (!error && data) return data as Participant;
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'getParticipantById');
       return undefined;
     }
     return this.data.participants.find(p => p.id === id && this.inScope(p));
@@ -518,7 +525,7 @@ export class DB {
         .eq('passId', trimmed)
         .maybeSingle();
       if (!error && data) return data as Participant;
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'getParticipantByPassId');
       return undefined;
     }
     return this.data.participants.find(p => p.passId.toUpperCase().trim() === trimmed && this.inScope(p));
@@ -553,7 +560,7 @@ export class DB {
     if (this.useSupabase && this.supabase) {
       const { error } = await this.supabase.from('participants').insert(newPart);
       if (!error) return newPart;
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'createParticipant');
     }
 
     this.data.participants.push(newPart);
@@ -595,7 +602,7 @@ export class DB {
     if (this.useSupabase && this.supabase) {
       const { error } = await this.supabase.from('participants').insert(created);
       if (!error) return created;
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'createParticipantsBatch');
     }
 
     this.data.participants.push(...created);
@@ -618,7 +625,7 @@ export class DB {
         .select()
         .maybeSingle();
       if (!error && data) return data as Participant;
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'updateParticipant');
       return undefined;
     }
 
@@ -638,7 +645,7 @@ export class DB {
     if (this.useSupabase && this.supabase) {
       const { error } = await this.scoped(this.supabase.from('participants').delete()).eq('id', id);
       if (!error) return true;
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'deleteParticipant');
     }
 
     const index = this.data.participants.findIndex(p => p.id === id && this.inScope(p));
@@ -652,7 +659,7 @@ export class DB {
     if (this.useSupabase && this.supabase) {
       const { error } = await this.scoped(this.supabase.from('participants').delete()).in('id', ids);
       if (!error) return true;
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'deleteParticipantsBatch');
     }
 
     const initialLength = this.data.participants.length;
@@ -669,7 +676,7 @@ export class DB {
       if (!error && data) {
         scanLogs = data as ScanLog[];
       } else {
-        if (error) throw new Error(error.message);
+        if (error) throw databaseFailure(error, 'getScanLogs');
         scanLogs = this.data.scanLogs.filter(log => this.inScope(log));
       }
     } else {
@@ -698,7 +705,7 @@ export class DB {
     if (this.useSupabase && this.supabase) {
       const { error } = await this.supabase.from('scanLogs').insert(newLog);
       if (!error) return newLog;
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'addScanLog');
     }
 
     this.data.scanLogs.push(newLog);
@@ -710,7 +717,7 @@ export class DB {
     if (this.useSupabase && this.supabase) {
       const { error } = await this.scoped(this.supabase.from('scanLogs').delete()).neq('id', '');
       if (!error) return;
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'clearScanLogs');
     }
 
     this.data.scanLogs = this.data.scanLogs.filter(log => !this.inScope(log));
@@ -725,7 +732,7 @@ export class DB {
         .eq('participantId', participantId)
         .order('createdAt', { ascending: false });
       if (!error && data) return data;
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'getPassHistory');
     }
     return (this.data.passHistory || [])
       .filter((item: any) => item.participantId === participantId && this.inScope(item))
@@ -750,7 +757,7 @@ export class DB {
     if (this.useSupabase && this.supabase) {
       const { data, error } = await this.supabase.from('passHistory').insert(record).select().single();
       if (!error && data) return data;
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'addPassHistory');
     }
 
     if (!this.data.passHistory) this.data.passHistory = [];
@@ -767,7 +774,7 @@ export class DB {
         .eq('eventId', currentEventId() || DEFAULT_EVENT_ID)
         .order('createdAt', { ascending: false });
       if (!error && data) return data;
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'getSecurityAlerts');
     }
     return [...(this.data.securityAlerts || [])].filter(item => this.inScope(item))
       .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -793,7 +800,7 @@ export class DB {
     if (this.useSupabase && this.supabase) {
       const { data, error } = await this.supabase.from('passSecurityAlerts').insert(record).select().single();
       if (!error && data) return data;
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'addSecurityAlert');
     }
 
     if (!this.data.securityAlerts) this.data.securityAlerts = [];
@@ -810,7 +817,7 @@ export class DB {
         .select()
         .maybeSingle();
       if (!error && data) return data;
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'resolveSecurityAlert');
       return undefined;
     }
 
@@ -829,7 +836,7 @@ export class DB {
         .eq('syncId', syncId)
         .maybeSingle();
       if (!error && data) return data as ScanLog;
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'getScanLogBySyncId');
       return undefined;
     }
     return (this.data.scanLogs || []).find((item: any) => item.syncId === syncId && this.inScope(item));
@@ -840,7 +847,7 @@ export class DB {
     if (this.useSupabase && this.supabase) {
       const { data, error } = await this.scoped(this.supabase.from('emailLogs').select('*'));
       if (!error && data) return data as EmailLog[];
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'getEmailLogs');
     }
     return (this.data.emailLogs || []).filter(log => this.inScope(log));
   }
@@ -856,7 +863,7 @@ export class DB {
     if (this.useSupabase && this.supabase) {
       const { error } = await this.supabase.from('emailLogs').insert(newLog);
       if (!error) return newLog;
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'addEmailLog');
     }
 
     if (!this.data.emailLogs) this.data.emailLogs = [];
@@ -874,7 +881,7 @@ export class DB {
         .select()
         .maybeSingle();
       if (!error && data) return data as EmailLog;
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'updateEmailLogStatus');
       return undefined;
     }
 
@@ -895,7 +902,7 @@ export class DB {
     if (this.useSupabase && this.supabase) {
       const { error } = await this.scoped(this.supabase.from('emailLogs').delete()).neq('id', '');
       if (!error) return;
-      if (error) throw new Error(error.message);
+      if (error) throw databaseFailure(error, 'clearEmailLogs');
     }
 
     this.data.emailLogs = (this.data.emailLogs || []).filter(log => !this.inScope(log));
