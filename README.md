@@ -4,7 +4,7 @@ EVENTZ brings public event discovery and registration together with an organizer
 
 ## Develop locally
 
-Use Node.js **22 or newer** (validated with Node 24). From the existing checkout:
+Use Node.js **22.13 or newer** (validated with Node 24). From the existing checkout:
 
 ```bash
 npm ci
@@ -33,6 +33,24 @@ npm run build
 - Event-specific offline gate manifests and queues. Gate staff can access only assigned events; removing an assignment preserves the person's account.
 
 Registrations in this release are confirmed immediately. Paid tickets, waitlists, manual registration approval, comments, direct messages, notifications/reminder delivery, password recovery, and email verification are future work. In-app passes work without an email provider. Optional existing email delivery requires Brevo or SMTP; its legacy RSVP links are not a supported platform workflow yet.
+
+## Organize from the first draft
+
+After signing in, choose **Create an event**, enter a name, and select **Create draft & open workspace**. Dates and public listing details can follow later. The private draft immediately opens the full organizer dashboard. The same event workspace remains available after publication and after the event date.
+
+The dashboard links to the event listing, pass designer, roster import, pass management, online registrations, gate scanner, gate team, and reports. Publish, pause online registration, edit the listing, move the event back to a draft, or cancel it without replacing its roster or pass designs. Workspace tabs have shareable URLs and survive reloads. Gate officers still see only their permitted tools for assigned events.
+
+### Import an existing roster
+
+Choose **Import roster**, then upload a file or paste rows. Supported sources are CSV, Excel (`.xlsx` / `.xls`), ODS, TSV, TXT, and PDFs with selectable text. For Google Forms, download a CSV of responses; for its linked Google Sheet, use **File → Download → CSV / Microsoft Excel**, or copy cells into Paste rows. These are imports of exports, not a live Google account connection.
+
+Select the worksheet and header/start row, map the columns, then review and edit each participant before importing. First and last names can be combined; English and French column names are detected. Source categories are preserved, with a default category only for blank cells. The preview supports row removal, validation and duplicate review. By default, duplicates match an email, name + phone, or name + organization when no contact is provided. You can explicitly allow duplicates when those are distinct people. The server rechecks the selected event’s roster before writing. These are contact-based checks, not a database uniqueness guarantee across simultaneous imports on separate server instances.
+
+Files are read in the browser. Limits are **10 MB, 1,000 participants per import, 100 columns and 50 PDF pages**. Larger rosters can be imported in separate files; database reads page through the complete roster so later imports and exports include guests beyond Supabase’s default response limit. PDF extraction depends on the document layout: review the mapped columns, remove headings/footers, and use CSV/Excel when possible. Scanned/image-only PDFs require OCR or a text export first. Nothing is silently truncated.
+
+Importing validates all rows and checks event capacity before inserting a batch. It adds participants and generates unique passes without emailing guests, replacing existing passes, or resetting attendance. Passes can then be printed, shared, emailed through the configured provider, regenerated or revoked. Manual check-in uses the gate access rules and records timestamps and scan history. Failed imports, additions and design saves show errors and retain the form for correction.
+
+This upgrade reuses the existing event-platform schema; it does **not** apply a production migration. Deployments must still pass the database repair and readiness checks below.
 
 ## Cover images
 

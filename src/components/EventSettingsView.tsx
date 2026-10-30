@@ -43,6 +43,7 @@ export default function EventSettingsView({ event, onSave }: EventSettingsViewPr
   const [design, setDesign] = useState<PassDesign>(getPassDesign(event));
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [logoUploadError, setLogoUploadError] = useState('');
 
   const previewEvent = useMemo<EventDetails>(() => ({ ...formData, primaryColor: design.primaryColor, accentColor: design.accentColor, logoPath: JSON.stringify(design) }), [formData, design]);
@@ -112,11 +113,11 @@ export default function EventSettingsView({ event, onSave }: EventSettingsViewPr
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault(); setSaving(true); setSaveSuccess(false);
+    e.preventDefault(); setSaving(true); setSaveSuccess(false); setSaveError('');
     try {
       await onSave(buildPassDesignerPayload());
       setSaveSuccess(true); setTimeout(() => setSaveSuccess(false), 3000);
-    } finally { setSaving(false); }
+    } catch (error: any) { setSaveError(error.message || 'Could not save your pass design.'); } finally { setSaving(false); }
   };
 
   const colorInput = (label: string, key: keyof PassDesign) => (
@@ -126,13 +127,14 @@ export default function EventSettingsView({ event, onSave }: EventSettingsViewPr
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 text-left">
       <form onSubmit={handleSubmit} className="lg:col-span-7 space-y-6">
+        {saveError && <p role="alert" className="organizer-error">{saveError}</p>}
         <div className="apple-card p-6 rounded-3xl space-y-4">
           <div className="flex items-center gap-2 border-b border-slate-100 pb-3"><div className="w-8 h-8 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-600"><Calendar size={15} /></div><div><h3 className="font-extrabold text-slate-800 text-sm">Event Configuration</h3><p className="text-[10px] text-slate-400">Basic event details printed on the pass</p></div></div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
             <div className="space-y-1 md:col-span-2"><label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Event Name</label><input type="text" name="eventName" value={formData.eventName} onChange={handleInputChange} required className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-slate-900 focus:outline-none transition-all" /></div>
-            <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Event Date</label><input type="date" name="eventDate" value={formData.eventDate} onChange={handleInputChange} required className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-slate-900 focus:outline-none transition-all font-mono" /></div>
-            <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Event Time</label><input type="time" name="eventTime" value={formData.eventTime} onChange={handleInputChange} required className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-slate-900 focus:outline-none transition-all font-mono" /></div>
-            <div className="space-y-1 md:col-span-2"><label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Venue Address</label><div className="relative"><span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-400"><MapPin size={14} /></span><input type="text" name="venue" value={formData.venue} onChange={handleInputChange} required className="w-full pl-10 pr-4 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-slate-900 focus:outline-none transition-all" /></div></div>
+            <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Event Date</label><input type="date" name="eventDate" value={formData.eventDate} onChange={handleInputChange} required={event.publicationStatus === 'published'} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-slate-900 focus:outline-none transition-all font-mono" /></div>
+            <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Event Time</label><input type="time" name="eventTime" value={formData.eventTime} onChange={handleInputChange} required={event.publicationStatus === 'published'} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-slate-900 focus:outline-none transition-all font-mono" /></div>
+            <div className="space-y-1 md:col-span-2"><label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Venue Address</label><div className="relative"><span className="absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-400"><MapPin size={14} /></span><input type="text" name="venue" value={formData.venue} onChange={handleInputChange} required={event.publicationStatus === 'published'} className="w-full pl-10 pr-4 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-slate-900 focus:outline-none transition-all" /></div></div>
             <div className="space-y-1 md:col-span-2"><label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Organizer / Brand Name</label><input type="text" name="organizerName" value={formData.organizerName} onChange={handleInputChange} required className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-slate-900 focus:outline-none transition-all" /></div>
             <div className="space-y-1 md:col-span-2"><label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Event Description</label><textarea name="description" value={formData.description} onChange={handleInputChange} rows={3} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-slate-900 focus:outline-none transition-all" /></div>
           </div>

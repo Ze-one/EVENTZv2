@@ -3,14 +3,18 @@ import { ArrowLeft, ArrowUpRight, Eye, Save } from "lucide-react";
 import { platformRequest, body } from "./api.js";
 import { categories, EventArtwork, Link, navigate, PageTitle } from "./ui.js";
 import type { PublicEvent } from "./types.js";
+import type { EventDetails } from "../types.js";
 import CoverImagePicker from "./CoverImagePicker.js";
+import "../components/organizer.css";
 
 export default function EventEditor({
   event,
   notify,
+  onSaved,
 }: {
-  event?: PublicEvent;
+  event?: PublicEvent | EventDetails;
   notify: (message: string) => void;
+  onSaved?: (event: PublicEvent) => void;
 }) {
   const [form, setForm] = useState({
     eventName: event?.eventName || "",
@@ -55,7 +59,8 @@ export default function EventEditor({
             ? "Event cancelled. It is no longer accepting registrations."
             : "Draft saved. Keep making it yours.",
       );
-      navigate(`/events/${result.id}`);
+      if (onSaved) onSaved(result);
+      else navigate(`/organizer/${result.id}`);
     } catch (error: any) {
       setError(error.message);
       setErrorCode(error.code || "");
@@ -66,19 +71,20 @@ export default function EventEditor({
   };
   return (
     <>
-      <Link to="/organizer" className="p-back">
+      {!onSaved && <Link to="/organizer" className="p-back">
         <ArrowLeft size={16} /> Your organizer space
-      </Link>
+      </Link>}
       <PageTitle
         eyebrow="Make something happen"
         title={event ? "Make it yours." : "Good things start with an idea."}
-        description="A workshop, a night out, a community gathering. There’s a place for it here."
+        description={event ? "Keep your event details and registration settings up to date." : "Give your event a name to open your full organizer workspace. Add the remaining details whenever you’re ready."}
       />
+      {!event && <section className="p-workspace-intro"><h2>Create privately. Prepare everything. Publish when ready.</h2><p>Your workspace includes the pass designer, roster imports, pass management, online registrations, gate staff, QR check-in and reports. All management tools are available while your event is a draft and after it is published.</p></section>}
       <form
         className="p-editor-layout"
         onSubmit={(e) => {
           e.preventDefault();
-          save("published");
+          save(event?.publicationStatus || "draft");
         }}
       >
         <div className="p-form-panel">
@@ -258,25 +264,24 @@ export default function EventEditor({
           )}
           <div className="p-editor-actions">
             <button
-              className="p-button p-button-outline"
-              disabled={busy || uploading}
-              type="button"
-              onClick={() => save("draft")}
-            >
-              <Save size={16} /> Save draft
-            </button>
-            <button
               className="p-button"
+              disabled={busy || uploading}
               type="submit"
+            >
+              <Save size={16} />{busy ? "Saving…" : event ? "Save changes" : "Create draft & open workspace"}
+            </button>
+            {event?.publicationStatus !== "published" && event?.publicationStatus !== "cancelled" && <button
+              className="p-button p-button-outline"
+              type="button"
+              onClick={() => save("published")}
               disabled={busy || uploading}
             >
-              {busy
-                ? "Saving…"
-                : event?.publicationStatus === "published"
-                  ? "Save & publish changes"
-                  : "Publish event"}
+              Publish event
               <ArrowUpRight size={17} />
-            </button>
+            </button>}
+            {event && event.publicationStatus !== "draft" && <button type="button" className="p-button p-button-outline" disabled={busy || uploading} onClick={() => {
+              if (window.confirm("Move this event to a private draft? It will leave discovery and stop accepting online registrations. Your roster and passes will be retained.")) save("draft");
+            }}>Move to draft</button>}
           </div>
           {event?.publicationStatus === "published" && (
             <button
@@ -315,8 +320,8 @@ export default function EventEditor({
             <span className="p-tag">Free entry</span>
           </div>
           <p className="p-form-note">
-            Save a draft to preview the full event page before sharing it with
-            the world.
+            Save a draft to open your organizer workspace. Prepare your roster,
+            design passes, and set up check-in before publishing.
           </p>
         </aside>
       </form>

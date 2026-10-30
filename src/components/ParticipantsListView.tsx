@@ -55,6 +55,8 @@ export default function ParticipantsListView({
   const [bulkCustomMessage, setBulkCustomMessage] = useState('');
   const [sendingEmail, setSendingEmail] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [addError, setAddError] = useState('');
+  const [adding, setAdding] = useState(false);
   const [newPartName, setNewPartName] = useState('');
   const [newPartPhone, setNewPartPhone] = useState('');
   const [newPartEmail, setNewPartEmail] = useState('');
@@ -212,14 +214,14 @@ export default function ParticipantsListView({
 
   const handleCreateParticipantSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPartName.trim()) return;
-    await onAddParticipant({ fullName: newPartName.trim(), phone: newPartPhone.trim(), email: newPartEmail.trim(), organization: newPartOrg.trim(), category: newPartCat.trim() || 'Attendee' });
-    setNewPartName('');
-    setNewPartPhone('');
-    setNewPartEmail('');
-    setNewPartOrg('');
-    setNewPartCat('Attendee');
-    setShowAddModal(false);
+    if (!newPartName.trim() || adding) return;
+    setAdding(true); setAddError('');
+    try {
+      await onAddParticipant({ fullName: newPartName.trim(), phone: newPartPhone.trim(), email: newPartEmail.trim(), organization: newPartOrg.trim(), category: newPartCat.trim() || 'Attendee' });
+      setNewPartName(''); setNewPartPhone(''); setNewPartEmail(''); setNewPartOrg(''); setNewPartCat('Attendee');
+      setShowAddModal(false);
+    } catch (error: any) { setAddError(error.message || 'Could not add this participant.'); }
+    finally { setAdding(false); }
   };
 
   const handleBulkDelete = () => {
@@ -504,6 +506,7 @@ export default function ParticipantsListView({
       {showAddModal && (
         <div className="eventz-overlay fixed inset-0 bg-slate-950/45 backdrop-blur-xl flex items-center justify-center p-4 z-50">
           <form onSubmit={handleCreateParticipantSubmit} className="eventz-modal bg-white/95 rounded-[30px] p-6 shadow-2xl relative w-full max-w-md border border-slate-100 text-left space-y-4">
+            {addError && <p role="alert" className="organizer-error">{addError}</p>}
             <button type="button" onClick={() => setShowAddModal(false)} className="absolute top-4 right-4 p-1.5 bg-slate-50 border border-slate-100 text-slate-400 hover:text-slate-700 rounded-lg transition-all"><X size={15} /></button>
             <div className="space-y-1 border-b border-slate-50 pb-2"><h3 className="font-extrabold text-slate-800 text-sm">Add New Registrant</h3><p className="text-[10px] text-slate-400">Add an individual participant directly to the roster</p></div>
             <div className="grid grid-cols-1 gap-3.5 text-xs">
@@ -513,7 +516,7 @@ export default function ParticipantsListView({
               <input value={newPartOrg} onChange={(e) => setNewPartOrg(e.target.value)} placeholder="Organization" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-slate-900 focus:outline-none transition-all" />
               <input value={newPartCat} onChange={(e) => setNewPartCat(e.target.value)} placeholder="Category" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-slate-900 focus:outline-none transition-all font-bold" />
             </div>
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-50"><button type="button" onClick={() => setShowAddModal(false)} className="px-4 py-2 border border-slate-200 hover:bg-slate-50 rounded-xl text-xs font-bold text-slate-600 transition-all">Cancel</button><button type="submit" className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shadow">Add and Generate Pass</button></div>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-50"><button type="button" onClick={() => setShowAddModal(false)} className="px-4 py-2 border border-slate-200 hover:bg-slate-50 rounded-xl text-xs font-bold text-slate-600 transition-all">Cancel</button><button type="submit" disabled={adding} className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shadow">{adding ? 'Adding…' : 'Add and Generate Pass'}</button></div>
           </form>
         </div>
       )}

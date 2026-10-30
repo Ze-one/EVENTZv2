@@ -1,0 +1,86 @@
+.organizer-hub, .roster-import, .gate-team { color: #0e1b3b; text-align: left; }
+.organizer-hub, .roster-import { display: grid; gap: 24px; margin-bottom: 28px; }
+.organizer-launch, .organizer-card { padding: clamp(20px, 3vw, 32px); background: #fff; border: 1px solid #dce2ec; border-radius: 20px; }
+.organizer-launch { background: linear-gradient(115deg, #fff 50%, #fff7e4); }
+.organizer-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
+.organizer-eyebrow { display: block; font-size: 10px; font-weight: 800; letter-spacing: .12em; color: #80600f; margin-bottom: 10px; }
+.organizer-heading h2 { font-size: clamp(22px, 3vw, 32px); line-height: 1.2; letter-spacing: -.035em; font-weight: 800; display: flex; align-items: center; gap: 10px; }
+.organizer-heading p { max-width: 720px; font-size: 14px; color: #5e6d86; line-height: 1.7; margin-top: 10px; }
+.organizer-heading h3, .organizer-card h3 { font-size: 18px; font-weight: 750; margin: 10px 0; }
+.organizer-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.organizer-primary, .organizer-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 10px; padding: 11px 16px; font-size: 13px; line-height: 1.5; font-weight: 700; text-decoration: none; }
+.organizer-primary { background: #f5aa0d; color: #0e1b3b; border: 1px solid #f5aa0d; }
+.organizer-secondary { background: #fff; color: #0e1b3b; border: 1px solid #ced7e5; }
+.organizer-primary:hover { background: #ffbd38; }
+.organizer-secondary:hover { background: #f2f5fa; }
+.organizer-hub button, .roster-import button, .gate-team button { cursor: pointer; }
+.organizer-hub button:disabled, .roster-import button:disabled, .gate-team button:disabled { opacity: .5; cursor: not-allowed; }
+.organizer-hub :focus-visible, .roster-import :focus-visible, .gate-team :focus-visible { outline: 3px solid #1d4c84; outline-offset: 3px; }
+.organizer-status { display: inline-flex; padding: 6px 12px; border-radius: 8px; background: #fff0cb; font-size: 12px; font-weight: 800; text-transform: capitalize; }
+.organizer-status-published { background: #e1f5e9; color: #126a3d; }
+.organizer-status-cancelled { background: #fce9eb; color: #9a2940; }
+.organizer-readiness { display: flex; flex-wrap: wrap; gap: 20px; margin: 22px 0; color: #405577; font-size: 13px; }
+.organizer-readiness span { display: inline-flex; align-items: center; gap: 8px; }
+.organizer-tools { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.organizer-tools button { padding: 20px; border-radius: 16px; background: #fff; border: 1px solid #dce2ec; text-align: left; transition: border-color .15s; }
+.organizer-tools button:hover { border-color: #c38c1d; }
+.organizer-tools button > svg { color: #1d4c84; margin-bottom: 18px; }
+.organizer-tools h3 { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; font-weight: 800; margin-bottom: 8px; }
+.organizer-tools p { font-size: 12px; line-height: 1.6; color: #5e6d86; }
+.organizer-error, .organizer-success { display: flex; align-items: flex-start; gap: 10px; border-radius: 10px; padding: 14px; margin: 16px 0; font-size: 14px; line-height: 1.6; }
+.organizer-error { background: #fff0f1; color: #992839; border: 1px solid #f4c6cc; }
+.organizer-error svg { flex-shrink: 0; margin-top: 3px; }
+.organizer-success { background: #e6f6ed; color: #176b42; }
+.roster-steps { display: flex; flex-wrap: wrap; gap: 24px; list-style: none; padding: 0; }
+.roster-steps li { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #5e6d86; }
+.roster-steps b { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #e7ecf3; }
+.roster-steps [aria-current] { color: #0e1b3b; font-weight: 800; }
+.roster-steps [aria-current] b { background: #f5aa0d; }
+.roster-source-tabs { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 24px; }
+.roster-source-tabs button { display: inline-flex; align-items: center; gap: 8px; padding: 12px 16px; border: 1px solid #dce2ec; border-radius: 10px; font-size: 13px; font-weight: 700; }
+.roster-source-tabs [aria-pressed=true] { background: #0e1b3b; border-color: #0e1b3b; color: white; }
+.roster-drop { padding: 36px 18px; border: 2px dashed #cad4e4; border-radius: 16px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+.roster-drop > svg { color: #1d4c84; }
+.roster-drop p, .roster-source-help p, .roster-source-help li { color: #5e6d86; font-size: 13px; line-height: 1.7; }
+.roster-drop h3 { margin: 0; }
+.roster-source-help { padding: 0 0 24px; }
+.roster-source-help ol { list-style: decimal; padding-left: 20px; margin: 12px 0; }
+.roster-template { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; text-decoration: underline; margin-top: 22px; }
+.roster-mapping, .roster-mapping-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 20px 0; }
+.roster-import label, .gate-team label { display: flex; flex-direction: column; gap: 7px; font-size: 13px; font-weight: 700; }
+.roster-import input:not([type=checkbox]), .roster-import select, .roster-import textarea, .gate-team input { width: 100%; min-width: 0; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 12px; background: #fff; color: #0e1b3b; font-size: 13px; font-weight: 400; }
+.roster-import small, .gate-team small { font-size: 11px; font-weight: 400; color: #5e6d86; line-height: 1.6; }
+.roster-import .roster-check { flex-direction: row; align-items: center; }
+.roster-check input { width: 17px; height: 17px; accent-color: #1d4c84; }
+.roster-note { font-size: 12px; color: #5e6d86; line-height: 1.7; margin: 14px 0; }
+.roster-table-wrap { overflow: auto; max-width: 100%; border: 1px solid #dce2ec; border-radius: 12px; margin: 18px 0; }
+.roster-table { border-collapse: collapse; width: 100%; background: white; font-size: 12px; text-align: left; }
+.roster-table caption { padding: 12px; text-align: left; color: #5e6d86; background: #f8fafc; }
+.roster-table th { background: #edf1f7; font-size: 11px; white-space: nowrap; }
+.roster-table th, .roster-table td { padding: 10px; border-bottom: 1px solid #e7ecf3; max-width: 320px; overflow-wrap: anywhere; }
+.roster-table input { min-width: 150px !important; }
+.roster-table td:first-child { width: 40px; }
+.roster-table .roster-issue { min-width: 160px; font-size: 11px; }
+.roster-invalid { background: #fff4f4; }
+.roster-fieldset { min-width: 0; border: 0; margin: 0; padding: 0; }
+.roster-pagination { font-size: 12px; }
+.roster-review-summary { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+.roster-review-summary p { font-size: 13px; margin-bottom: 8px; }
+.roster-review-summary small { display: block; max-width: 650px; }
+.roster-success { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+.roster-success > svg { color: #167043; }
+.roster-success p { line-height: 1.7; font-size: 14px; }
+.roster-paste textarea { margin-top: 12px; font-family: ui-monospace, monospace; }
+.gate-team form { margin: 28px 0; }
+.gate-team fieldset { border: 0; }
+.gate-team legend { font-weight: 800; }
+.gate-team-list { list-style: none; padding: 0; }
+.gate-team-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #e2e8f0; padding: 18px 0; font-size: 14px; }
+.gate-team-list p { color: #5e6d86; font-size: 12px; overflow-wrap: anywhere; }
+.organizer-listing { padding: 24px; border-radius: 18px; background: #f8fafc; }
+.p-workspace-intro { background: #fff6df; border: 1px solid #f0d395; padding: 22px; border-radius: 14px; margin: 0 0 24px; }
+.p-workspace-intro h2 { font-weight: 800; margin-bottom: 8px; }
+.p-workspace-intro p { font-size: 14px; line-height: 1.7; color: #52617c; }
+@media (max-width: 1100px) { .organizer-tools { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .organizer-heading, .roster-review-summary { flex-direction: column; } .roster-mapping, .roster-mapping-controls { grid-template-columns: 1fr; } .organizer-listing { padding: 12px; } .roster-steps { gap: 12px; } .roster-steps li { font-size: 11px; } .gate-team-list li { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 420px) { .organizer-tools { grid-template-columns: 1fr; } }

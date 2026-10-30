@@ -19,6 +19,7 @@ import { platformRouter, asyncRoute, account, fail, eventInput } from './src/ser
 import { workspaceRouter } from './src/server/workspace-router.js';
 import { sessionSecret, passSecret } from './src/server/runtime-secrets.js';
 import { currentEventId, eventScope, withEventLock } from './src/server/event-scope.js';
+import { MAX_ROSTER_ROWS, normalizeParticipant, participantErrors, partitionDuplicates } from './src/roster/model.js';
 
 dotenv.config({ path: ['.env.local', '.env'] });
 sessionSecret();
@@ -91,7 +92,10 @@ route.post('/api/event', async (req, res) => {
   const designFields = ['passTitle', 'accessInstruction', 'footerNote', 'logoPath', 'organizerName', 'primaryColor', 'accentColor', 'showPhone', 'showEmail', 'showCategory', 'showOrganization', 'dashboardMediaFit', 'dashboardMediaPosition', 'dashboardMediaOverlay', 'dashboardMediaAutoplay', 'dashboardMediaLoop'];
   const design = Object.fromEntries(designFields.filter(key => Object.hasOwn(req.body || {}, key)).map(key => [key, req.body[key]]));
   const previous = await db.getEvent();
-  const event = await db.updateEvent(currentEventId()!, { ...design, ...eventInput({ ...req.body, publicationStatus: previous!.publicationStatus }, previous) });
+  const fields = eventInput({ ...req.body, publicationStatus: previous!.publicationStatus }, previous);
+  if (fields.eventCapacity && fields.eventCapacity < (await db.getParticipants()).filter(p => p.status !== PassStatus.CANCELLED).length)
+    return fail(409, 'Capacity cannot be below the number of registered attendees.');
+  const event = await db.updateEvent(currentEventId()!, { ...design, ...fields });
   return res.json(event);
 });
 
@@ -344,8 +348,9 @@ route.get('/api/participants', async (_req, res) => {
 });
 
 route.post('/api/participants', async (req, res) => {
-  const { fullName, phone, email, organization, category } = req.body || {};
-  if (!fullName) return res.status(400).json({ error: 'Full name is required' });
+  const errors = participantErrors(req.body);
+  if (errors.length) return fail(400, errors.join(' '));
+  const { fullName, phone, email, organization, category } = normalizeParticipant(req.body);
   const participant = await db.createParticipant({
     eventId: (currentEventId() || 'event-1'),
     fullName,
@@ -362,22 +367,32 @@ route.post('/api/participants', async (req, res) => {
 });
 
 route.post('/api/participants/batch', async (req, res) => {
-  const { participants } = req.body || {};
+  const { participants, duplicateMode = 'skip' } = req.body || {};
   if (!Array.isArray(participants) || participants.length === 0) return res.status(400).json({ error: 'Participants array is required' });
-  const batchData = participants.map((p: any) => ({
+  if (participants.length > MAX_ROSTER_ROWS) return fail(400, `Import up to ${MAX_ROSTER_ROWS} participants at a time.`);
+  if (!['skip', 'allow'].includes(duplicateMode)) return fail(400, 'Choose whether to skip or allow duplicate rows.');
+  for (let index = 0; index < participants.length; index++) {
+    const errors = participantErrors(participants[index]);
+    if (errors.length) return fail(400, `Row ${index + 1}: ${errors.join(' ')} No participants were imported.`);
+  }
+  const normalized = participants.map(normalizeParticipant);
+  const unique = duplicateMode === 'skip' ? partitionDuplicates(normalized, await db.getParticipants()).unique : normalized;
+  const skipped = normalized.length - unique.length;
+  if (!unique.length) return res.json({ success: true, count: 0, skipped, data: [] });
+  const batchData = unique.map(p => ({
     eventId: (currentEventId() || 'event-1'),
-    fullName: p.fullName || 'Anonymous',
+    fullName: p.fullName,
     phone: p.phone || '',
     email: p.email || '',
     organization: p.organization || '',
-    category: p.category || '',
+    category: p.category || 'Attendees',
     status: PassStatus.NOT_USED,
     rsvpToken: makeRsvpToken(),
     rsvpStatus: 'pending' as const,
     passCancelledByRsvp: false
   }));
   const created = await db.createParticipantsBatch(batchData);
-  return res.json({ success: true, count: created.length, data: created });
+  return res.json({ success: true, count: created.length, skipped, data: created });
 });
 
 route.put('/api/participants/:id', async (req, res) => {

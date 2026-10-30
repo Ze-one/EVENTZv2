@@ -10,6 +10,10 @@ import Logo from './components/Logo.tsx';
 import DashboardView from './components/DashboardView.tsx';
 import EventSettingsView from './components/EventSettingsView.tsx';
 import UploadParticipants from './components/UploadParticipants.tsx';
+import OrganizerHub from './components/OrganizerHub.js';
+import GateTeamView from './components/GateTeamView.js';
+import EventEditor from './platform/EventEditor.js';
+import type { RosterParticipant } from './roster/model.js';
 import ParticipantsListView from './components/ParticipantsListView.tsx';
 import ReportsView from './components/ReportsView.tsx';
 import ScannerComponent from './components/ScannerComponent.tsx';
@@ -27,6 +31,7 @@ import {
 export default function App({ sessionUser, eventId, onExit }: { sessionUser: Omit<User, 'passwordHash'>; eventId: string; onExit: () => void }) {
   const [currentUser, setCurrentUser] = useState<Omit<User, 'passwordHash'> | null>(sessionUser);
   const [eventDetails, setEventDetails] = useState<EventDetails | null>(null);
+  const [loadError, setLoadError] = useState('');
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [scanLogs, setScanLogs] = useState<ScanLog[]>([]);
   const [emailLogs, setEmailLogs] = useState<EmailLog[]>([]);
@@ -35,7 +40,12 @@ export default function App({ sessionUser, eventId, onExit }: { sessionUser: Omi
   const registrationFeedReadyRef = useRef(false);
   
   // Navigation
-  const [currentPage, setCurrentPage] = useState<string>(sessionUser.role === UserRole.GATE_OFFICER ? 'scanner' : 'dashboard');
+  const readPage = () => {
+    const page = new URLSearchParams(window.location.search).get('tab') || '';
+    const allowed = sessionUser.role === UserRole.ADMIN ? ['dashboard', 'listing', 'event-settings', 'upload', 'participants', 'registrations', 'scanner', 'reports', 'team'] : ['dashboard', 'scanner'];
+    return allowed.includes(page) ? page : sessionUser.role === UserRole.GATE_OFFICER ? 'scanner' : 'dashboard';
+  };
+  const [currentPage, setCurrentPage] = useState<string>(readPage);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [rsvpToken, setRsvpToken] = useState('');
 
@@ -81,39 +91,25 @@ export default function App({ sessionUser, eventId, onExit }: { sessionUser: Omi
     setTimeout(() => setToast(null), 4000);
   };
 
-  // Fetch core settings and state from backend Express
+  // Keep failures visible instead of leaving organizers on an endless loader.
   const fetchAllData = async () => {
     try {
-      // 1. Event
-      const resEv = await workspaceFetch('/api/event');
-      if (resEv.ok) {
-        const ev = await resEv.json();
-        setEventDetails(ev);
-      }
-
-      // 2. Participants
-      const resPart = await workspaceFetch('/api/participants');
-      if (resPart.ok) {
-        const pList = await resPart.json();
-        setParticipants(pList);
-      }
-
-      // 3. Scan logs
-      const resLogs = await workspaceFetch('/api/scan-logs');
-      if (resLogs.ok) {
-        const logsList = await resLogs.json();
-        setScanLogs(logsList);
-      }
-
-      // 4. Email logs
-      const resEmailLogs = await workspaceFetch('/api/email-logs');
-      if (resEmailLogs.ok) {
-        const emailLogsList = await resEmailLogs.json();
-        setEmailLogs(emailLogsList);
-      }
-    } catch (err) {
-      console.error('Error fetching backend core state:', err);
-    }
+      const response = await workspaceFetch('/api/event');
+      const event = await response.json();
+      if (!response.ok) throw new Error(event.error || 'Could not load this event.');
+      setEventDetails(event);
+      const read = async (path: string) => {
+        const response = await workspaceFetch(path);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Could not load event management data.');
+        return data;
+      };
+      const [roster, scans, emails] = await Promise.all([
+        read('/api/participants'), read('/api/scan-logs'),
+        sessionUser.role === UserRole.ADMIN ? read('/api/email-logs') : Promise.resolve([])
+      ]);
+      setParticipants(roster); setScanLogs(scans); setEmailLogs(emails); setLoadError('');
+    } catch (error: any) { setLoadError(error.message || 'Could not connect to this event. Please retry.'); }
   };
 
   // Mount logic
@@ -124,6 +120,7 @@ export default function App({ sessionUser, eventId, onExit }: { sessionUser: Omi
     // Direct url scanning verify checker
     const checkPathnameVerify = async () => {
       const path = window.location.pathname;
+      if (path === `/organizer/${eventId}`) setCurrentPage(readPage());
       if (path === '/register' || path.startsWith('/register/')) {
         setCurrentPage('public-registration');
         return;
@@ -272,71 +269,49 @@ export default function App({ sessionUser, eventId, onExit }: { sessionUser: Omi
 
   // API: Save settings
   const handleSaveEventSettings = async (updated: EventDetails) => {
-    try {
-      const res = await workspaceFetch('/api/event', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updated)
-      });
-      if (res.ok) {
-        const saved = await res.json();
-        setEventDetails(saved);
-        return saved;
-      }
-    } catch (err) {
-      console.error('Error saving event details:', err);
-    }
+    const response = await workspaceFetch('/api/event', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated)
+    });
+    const saved = await response.json();
+    if (!response.ok) throw new Error(saved.error || 'Could not save the pass design. Please retry.');
+    setEventDetails(saved);
+    return saved as EventDetails;
   };
 
-  // API: Upload batch participants
-  const handleConfirmBatchUpload = async (list: any[]) => {
-    try {
-      const res = await workspaceFetch('/api/participants/batch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ participants: list })
-      });
-
-      if (res.ok) {
-        await fetchAllData();
-        setCurrentPage('participants');
-        showToast(`${list.length} passes generated and stored successfully!`, 'success');
-      }
-    } catch (err) {
-      showToast('Failed to save attendee batch to database.', 'error');
-    }
+  const handleConfirmBatchUpload = async (list: RosterParticipant[], duplicateMode: 'skip' | 'allow') => {
+    const response = await workspaceFetch('/api/participants/batch', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ participants: list, duplicateMode })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Could not import your roster. Your preview has been preserved.');
+    await fetchAllData();
+    return { count: data.count, skipped: data.skipped || 0 };
   };
 
-  // API: Add individual participant
-  const handleAddParticipant = async (p: { fullName: string; phone: string; email: string; organization: string; category: string }) => {
-    try {
-      const res = await workspaceFetch('/api/participants', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(p)
-      });
-      if (res.ok) {
-        await fetchAllData();
-      }
-    } catch (err) {
-      console.error(err);
-    }
+  // A failed add keeps the participant form open with its original values.
+  const handleAddParticipant = async (participant: RosterParticipant) => {
+    const response = await workspaceFetch('/api/participants', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(participant)
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Could not add this participant.');
+    await fetchAllData();
   };
 
-  // API: Update single participant state
   const handleUpdateParticipant = async (id: string, updates: Partial<Participant>) => {
     try {
-      const res = await workspaceFetch(`/api/participants/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates)
+      // Manual check-in uses the same access rules, timestamps and audit trail
+      // as scanning. A plain status edit would leave attendance inconsistent.
+      const participant = participants.find(participant => participant.id === id);
+      const manualCheckIn = updates.status === PassStatus.USED && participant;
+      const response = await workspaceFetch(manualCheckIn ? `/api/verify/${participant.passId}/claim` : `/api/participants/${id}`, {
+        method: manualCheckIn ? 'POST' : 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(manualCheckIn ? { direction: 'entry', checkedInBy: currentUser?.name || 'Organizer' } : updates)
       });
-      if (res.ok) {
-        await fetchAllData();
-      }
-    } catch (err) {
-      console.error(err);
-    }
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not update this pass.');
+      await fetchAllData();
+    } catch (error: any) { showToast(error.message || 'Could not update this pass.', 'error'); }
   };
 
   // API: Delete participant
@@ -576,15 +551,17 @@ export default function App({ sessionUser, eventId, onExit }: { sessionUser: Omi
     setMobileMenuOpen(false);
     // Clear verification URL parameter context if navigating away
     if (page !== 'verify') {
-      window.history.replaceState({}, '', `/organizer/${eventId}`);
+      window.history.pushState({}, '', `/organizer/${eventId}?tab=${encodeURIComponent(page)}`);
     }
   };
 
   const pageMeta: Record<string, { title: string; subtitle: string }> = {
+    listing: { title: 'Event listing', subtitle: 'Prepare, publish and update your event page.' },
+    team: { title: 'Gate team', subtitle: 'Manage staff access to this event.' },
     dashboard: { title: 'Dashboard', subtitle: 'Live event access intelligence and operations.' },
     'event-settings': { title: 'Pass Designer', subtitle: 'Configure the event and credential experience.' },
     upload: { title: 'Upload Roster', subtitle: 'Import participants and organize them by category.' },
-    registrations: { title: 'Registrations', subtitle: 'Review applications and manage RSVP activity.' },
+    registrations: { title: 'Registrations', subtitle: 'View people registered through your event page.' },
     participants: { title: 'Manage Passes', subtitle: 'Search, communicate with, and control participant passes.' },
     reports: { title: 'Analytics & Audit', subtitle: 'Review attendance, email delivery, and gate activity.' },
     scanner: { title: 'Gate Scanner', subtitle: 'Verify credentials and process participant entry.' },
@@ -600,8 +577,9 @@ export default function App({ sessionUser, eventId, onExit }: { sessionUser: Omi
         <Logo size="lg" variant="dark" className="animate-pulse" />
         <div className="flex items-center gap-2 text-slate-400 font-mono text-xs">
           <RefreshCw className="animate-spin text-yellow-500" size={14} />
-          Initialising secure database node...
+          {loadError ? 'Event workspace could not load.' : 'Loading your event workspace…'}
         </div>
+        {loadError && <div className="max-w-lg px-6 text-center"><p role="alert" className="organizer-error">{loadError}</p><button className="organizer-primary" onClick={fetchAllData}>Retry</button><button className="organizer-secondary" onClick={onExit}>Back to your events</button></div>}
       </div>
     );
   }
@@ -742,7 +720,7 @@ export default function App({ sessionUser, eventId, onExit }: { sessionUser: Omi
 
   return (
     <>
-      <div className="workspace-return-bar"><button onClick={onExit}><ArrowLeft size={15} /> Back to EVENTZ</button><span>{eventDetails.eventName} <b>Organizer workspace</b></span><a href={`/events/${eventId}/edit`}>Edit event listing</a></div>
+      <div className="workspace-return-bar"><button onClick={onExit}><ArrowLeft size={15} /> Your events</button><span>{eventDetails.eventName} <b>{eventDetails.publicationStatus || 'draft'}</b></span>{currentUser.role === UserRole.ADMIN && <button onClick={() => handlePageChange('listing')}>Edit event listing</button>}</div>
     <div className="eventz-shell min-h-screen flex flex-col font-sans text-slate-800">
       
       <AppHeader
@@ -770,6 +748,8 @@ export default function App({ sessionUser, eventId, onExit }: { sessionUser: Omi
 
             {currentUser.role === UserRole.ADMIN && (
               <>
+                <button onClick={() => handlePageChange('listing')} data-active={currentPage === 'listing'}><Calendar size={13} /><span>Event listing</span></button>
+                <button onClick={() => handlePageChange('team')} data-active={currentPage === 'team'}><ShieldCheck size={13} /><span>Gate team</span></button>
                 <button
                   onClick={() => handlePageChange('event-settings')}
                   data-active={currentPage === 'event-settings'}
@@ -894,6 +874,8 @@ export default function App({ sessionUser, eventId, onExit }: { sessionUser: Omi
                   <button onClick={() => handlePageChange('event-settings')} data-active={currentPage === 'event-settings'}>
                     <Calendar size={17} /><span>Pass Designer</span>
                   </button>
+                  <button onClick={() => handlePageChange('listing')} data-active={currentPage === 'listing'}><Calendar size={16} /><span>Event listing</span></button>
+                  <button onClick={() => handlePageChange('team')} data-active={currentPage === 'team'}><ShieldCheck size={16} /><span>Gate team</span></button>
                   <button onClick={() => handlePageChange('upload')} data-active={currentPage === 'upload'}>
                     <Users size={17} /><span>Upload roster</span>
                   </button>
@@ -933,7 +915,7 @@ export default function App({ sessionUser, eventId, onExit }: { sessionUser: Omi
           <div className="eventz-topbar-copy">
             <div className="flex items-center gap-2">
               <h1>{activePageMeta.title}</h1>
-              <span className="eventz-chip bg-emerald-50 text-emerald-700 border-emerald-100">LIVE</span>
+              <span className="eventz-chip bg-emerald-50 text-emerald-700 border-emerald-100">{eventDetails.publicationStatus || 'draft'}</span>
             </div>
             <p>{activePageMeta.subtitle}</p>
           </div>
@@ -1221,6 +1203,11 @@ export default function App({ sessionUser, eventId, onExit }: { sessionUser: Omi
           </div>
         )}
 
+        {loadError && <div role="alert" className="organizer-error">{loadError}<button onClick={fetchAllData}>Retry</button></div>}
+        {currentPage === 'listing' && currentUser.role === UserRole.ADMIN && <div className="platform organizer-listing"><EventEditor event={eventDetails} notify={message => showToast(message)} onSaved={event => { setEventDetails(previous => ({ ...previous!, ...event })); handlePageChange('dashboard'); }} /></div>}
+        {currentPage === 'team' && currentUser.role === UserRole.ADMIN && <GateTeamView onChanged={fetchAllData} />}
+        {currentPage === 'dashboard' && currentUser.role === UserRole.ADMIN && <OrganizerHub event={eventDetails} participants={participants} onNavigate={handlePageChange} onChanged={event => setEventDetails(previous => ({ ...previous!, ...event }))} />}
+
         {/* TAB PATH: DASHBOARD */}
         {currentPage === 'dashboard' && (
           <DashboardView 
@@ -1243,7 +1230,9 @@ export default function App({ sessionUser, eventId, onExit }: { sessionUser: Omi
         {/* TAB PATH: UPLOAD ROSTER LIST */}
         {currentPage === 'upload' && currentUser.role === UserRole.ADMIN && (
           <UploadParticipants 
-            onConfirm={handleConfirmBatchUpload} 
+            onConfirm={handleConfirmBatchUpload}
+            existingParticipants={participants}
+            onDone={() => handlePageChange('participants')}
             onCancel={() => handlePageChange('dashboard')}
           />
         )}

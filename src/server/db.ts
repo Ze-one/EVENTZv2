@@ -506,9 +506,20 @@ export class DB {
   // --- Participants Methods ---
   async getParticipants(): Promise<Participant[]> {
     if (this.useSupabase && this.supabase) {
-      const { data, error } = await this.scoped(this.supabase.from('participants').select('*'));
-      if (!error && data) return data as Participant[];
-      if (error) throw databaseFailure(error, 'getParticipants');
+      // PostgREST limits each response. Read the complete event roster so later
+      // imports, capacity checks, exports and gate manifests include every guest.
+      const participants: Participant[] = [];
+      const pageSize = 500;
+      let cursor: string | undefined;
+      for (;;) {
+        let query = this.scoped(this.supabase.from('participants').select('*')).order('id', { ascending: true }).limit(pageSize);
+        if (cursor) query = query.gt('id', cursor);
+        const { data, error } = await query;
+        if (error) throw databaseFailure(error, 'getParticipants');
+        if (!data?.length) return participants;
+        participants.push(...(data || []) as Participant[]);
+        cursor = data[data.length - 1].id;
+      }
     }
     return this.data.participants.filter(p => this.inScope(p));
   }

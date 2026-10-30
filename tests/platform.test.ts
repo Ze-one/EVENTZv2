@@ -893,3 +893,96 @@ test("cover upload never makes an existing private storage bucket public", async
       error instanceof AppError && error.code === "COVER_STORAGE_CONFIGURATION",
   );
 });
+
+test('organizers can prepare a private draft, import rosters, design passes and keep operating after publication', async () => {
+  const created = await api('/events', owner, { eventName: 'Full organizer workflow' });
+  assert.equal(created.status, 201);
+  const event = created.data;
+  const design = { passTitle: 'PRIVATE PREVIEW PASS', primaryColor: '#112233', logoPath: JSON.stringify({ title: 'My custom design' }) };
+  assert.equal((await workspace(event, '/event', owner, design)).status, 200);
+  const roster = [
+    { fullName: 'Imported VIP', email: 'imported-vip@example.test', phone: '+237600000001', category: 'VIP', organization: 'One' },
+    { fullName: 'Imported Staff', email: 'imported-staff@example.test', category: 'Staff', eventId: eventB.id, userId: other.user.id, status: 'Used' },
+    { fullName: 'Duplicate VIP', email: 'IMPORTED-VIP@example.test', category: 'Guests' },
+  ];
+  const imported = await workspace(event, '/participants/batch', owner, { participants: roster });
+  assert.equal(imported.status, 200, JSON.stringify(imported.data));
+  assert.equal(imported.data.count, 2);
+  assert.equal(imported.data.skipped, 1);
+  assert.ok(imported.data.data.every((p: any) => p.eventId === event.id && !p.userId && p.status === 'Not Used'));
+  assert.equal(new Set(imported.data.data.map((p: any) => p.passId)).size, 2);
+  assert.deepEqual(imported.data.data.map((p: any) => p.category), ['VIP', 'Staff']);
+  const retry = await workspace(event, '/participants/batch', owner, { participants: roster });
+  assert.equal(retry.data.count, 0);
+  assert.equal(retry.data.skipped, 3);
+  assert.equal((await workspace(event, '/participants/batch', other, { participants: roster })).status, 403);
+  assert.equal((await api(`/events/${event.id}`, attendee)).status, 404);
+  assert.equal((await api(`/events/${event.id}/register`, attendee, {})).status, 404);
+  const publish = await api(`/events/${event.id}`, owner, { ...eventBody, eventName: event.eventName, eventCapacity: 10, publicationStatus: 'published' }, 'PATCH');
+  assert.equal(publish.status, 200, JSON.stringify(publish.data));
+  assert.equal((await workspace(event, '/event', owner)).data.logoPath, design.logoPath);
+  assert.equal((await workspace(event, '/participants', owner)).data.length, 2);
+  const more = await workspace(event, '/participants/batch', owner, { participants: [{ fullName: 'After publication', category: 'Speaker' }] });
+  assert.equal(more.data.count, 1);
+  const manual = await workspace(event, `/verify/${imported.data.data[0].passId}/claim`, owner, { checkedInBy: 'Organizer', direction: 'entry' });
+  assert.equal(manual.status, 200, JSON.stringify(manual.data));
+  assert.equal((await workspace(event, '/scan-logs', owner)).data.length, 1);
+  assert.match((await workspace(event, '/export-registry?format=csv', owner)).data, /Imported VIP/);
+  assert.equal((await workspace(event, '/event', owner, { eventCapacity: 1 })).status, 409);
+});
+
+test('roster imports validate every row before writing, enforce capacity and require explicit duplicate overrides', async () => {
+  const event = (await api('/events', owner, { eventName: 'Import validation', eventCapacity: 2 })).data;
+  const list = () => workspace(event, '/participants', owner);
+  for (const participants of [[{ fullName: 'Valid' }, { fullName: '' }], [{ fullName: 'Valid', email: 'invalid' }], [null], [{ fullName: 'Valid', category: {} }], Array(1001).fill({ fullName: 'Name' })]) {
+    const response = await workspace(event, '/participants/batch', owner, { participants });
+    assert.equal(response.status, 400, JSON.stringify(response.data));
+    assert.equal((await list()).data.length, 0);
+  }
+  const overflow = await workspace(event, '/participants/batch', owner, { participants: ['A', 'B', 'C'].map(fullName => ({ fullName })) });
+  assert.equal(overflow.status, 409);
+  assert.equal((await list()).data.length, 0);
+  const allowed = await workspace(event, '/participants/batch', owner, { participants: [{ fullName: 'Same' }, { fullName: 'Same' }], duplicateMode: 'allow' });
+  assert.equal(allowed.data.count, 2);
+  const repeated = await workspace(event, '/participants/batch', owner, { participants: [{ fullName: 'Same' }] });
+  assert.equal(repeated.data.count, 0);
+  assert.equal(repeated.data.skipped, 1);
+  assert.equal((await workspace(event, '/participants/batch', owner, { participants: [{ fullName: 'Another' }], duplicateMode: 'replace' })).status, 400);
+  assert.equal((await workspace(event, '/participants/batch', owner, { participants: [{ fullName: 'Another' }] })).status, 409);
+  assert.equal((await list()).data.length, 2);
+});
+
+test('an already published past event remains editable without permitting new publication in the past', async () => {
+  const { db } = await import('../src/server/db.js');
+  const created = await api('/events', owner, { ...eventBody, eventName: 'Past event operations', publicationStatus: 'published' });
+  const event = created.data;
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  await db.updateEvent(event.id, { eventDate: yesterday });
+  assert.equal((await workspace(event, '/event', owner, { passTitle: 'After-event badge' })).status, 200);
+  assert.equal((await api(`/events/${event.id}`, owner, { description: 'Updated report notes' }, 'PATCH')).status, 200);
+  assert.equal((await api('/events', owner, { ...eventBody, eventDate: yesterday, publicationStatus: 'published' })).status, 400);
+  assert.equal((await api(`/events/${event.id}`, owner, { publicationStatus: 'draft' }, 'PATCH')).status, 200);
+  assert.equal((await api(`/events/${event.id}`, owner, { publicationStatus: 'published' }, 'PATCH')).status, 400);
+});
+
+test('Supabase roster pagination retains event scope and reads beyond the API row cap', async () => {
+  const { createClient } = await import('@supabase/supabase-js');
+  const { DB } = await import('../src/server/db.js');
+  const { eventScope } = await import('../src/server/event-scope.js');
+  const rows = Array.from({ length: 1205 }, (_, index) => ({ id: `part-${String(index).padStart(5, '0')}`, eventId: 'scope-test', fullName: `Person ${index}` }));
+  const paths: URL[] = [];
+  const client = createClient('https://database.example.test', 'test-key', { global: { fetch: async (input) => {
+    const url = new URL(String(input)); paths.push(url);
+    assert.equal(url.searchParams.get('eventId'), 'eq.scope-test');
+    assert.equal(url.searchParams.get('order'), 'id.asc');
+    const cursor = (url.searchParams.get('id') || 'gt.').slice(3);
+    // Simulate a custom row cap lower than the requested page size.
+    const page = rows.filter(row => row.id > cursor).slice(0, 200);
+    return new Response(JSON.stringify(page), { status: 200, headers: { 'content-type': 'application/json' } });
+  } } });
+  const database = new DB({ client });
+  const result = await eventScope.run({ eventId: 'scope-test', role: 'admin' }, () => database.getParticipants());
+  assert.equal(result.length, 1205);
+  assert.equal(new Set(result.map(p => p.id)).size, 1205);
+  assert.equal(paths.length, 8);
+});

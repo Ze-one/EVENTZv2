@@ -1,336 +1,136 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Upload, Clipboard, FileSpreadsheet, FileText, ArrowLeft, ArrowRight, Download, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { detectMapping, looksLikeHeader, mapRoster, MAX_ROSTER_BYTES, MAX_ROSTER_ROWS, participantErrors, participantFields, fieldLimits, partitionDuplicates, rosterFields, type ColumnMapping, type RosterParticipant } from '../roster/model.js';
+import { parseRosterText, parseRosterWorkbook, validateTable, type RosterSheet } from '../roster/parsers.js';
+import './organizer.css';
 
-import React, { useMemo, useRef, useState } from 'react';
-import * as XLSX from 'xlsx';
-import Papa from 'papaparse';
-import { Upload, FileText, Trash2, CheckCircle2, AlertCircle, Sparkles, Clipboard, PlusCircle, Tags, Users } from 'lucide-react';
-
-interface RawParticipant {
-  fullName: string;
-  phone: string;
-  email: string;
-  organization: string;
-  category: string;
-}
-
-interface LocalCategory {
-  id: string;
-  name: string;
-  description: string;
-  color: string;
-  accessLevel: string;
-  instructions: string;
-  capacity: string;
-  isActive: boolean;
-  createdAt: string;
-}
-
-interface UploadParticipantsProps {
-  onConfirm: (participants: RawParticipant[]) => void;
+export type RosterImportResult = { count: number; skipped: number };
+interface Props {
+  onConfirm: (participants: RosterParticipant[], duplicateMode: 'skip' | 'allow') => Promise<RosterImportResult>;
   onCancel: () => void;
-  existingCategories?: string[];
+  onDone: () => void;
+  existingParticipants: RosterParticipant[];
 }
+const PAGE_SIZE = 25;
+export default function UploadParticipants({ onConfirm, onCancel, onDone, existingParticipants }: Props) {
+  const [mode, setMode] = useState<'file' | 'paste' | 'google'>('file');
+  const [sheets, setSheets] = useState<RosterSheet[]>([]), [sheetIndex, setSheetIndex] = useState(0);
+  const [sourceName, setSourceName] = useState(''), [text, setText] = useState('');
+  const [firstRow, setFirstRow] = useState(0), [hasHeader, setHasHeader] = useState(true);
+  const [mapping, setMapping] = useState<ColumnMapping>(detectMapping([]));
+  const [defaultCategory, setDefaultCategory] = useState('Attendees');
+  const [preview, setPreview] = useState<RosterParticipant[] | null>(null);
+  const [page, setPage] = useState(0), [skipDuplicates, setSkipDuplicates] = useState(true);
+  const [busy, setBusy] = useState(false), [reading, setReading] = useState(false), [error, setError] = useState('');
+  const [result, setResult] = useState<RosterImportResult | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null), readVersion = useRef(0), saving = useRef(false);
+  useEffect(() => () => { readVersion.current++; }, []);
+  const table = sheets[sheetIndex]?.rows || [];
+  const width = Math.max(0, ...table.map(row => row.length));
+  const headers = Array.from({ length: Math.min(width, 100) }, (_, index) => hasHeader ? table[firstRow]?.[index] || `Column ${index + 1}` : `Column ${index + 1}`);
+  const rows = preview || [];
+  const duplicateCheck = useMemo(() => partitionDuplicates(rows, existingParticipants), [rows, existingParticipants]);
+  const issues = useMemo(() => rows.map(participantErrors), [rows]);
+  const invalid = issues.filter(row => row.length).length;
+  const importCount = skipDuplicates ? duplicateCheck.unique.length : rows.length;
+  const categoryOptions = [...new Set(['Attendees', 'VIP', 'Staff', 'Volunteers', ...existingParticipants.map(p => p.category).filter(Boolean)])];
+  const lastPage = Math.max(0, Math.ceil(rows.length / PAGE_SIZE) - 1);
+  const activePage = Math.min(page, lastPage);
 
-const CATEGORY_STORAGE_KEY = 'eventz_participant_categories';
-const DEFAULT_CATEGORIES: LocalCategory[] = [
-  { id: 'cat-attendee', name: 'Attendees', description: 'General event participants', color: '#2563eb', accessLevel: 'General Access', instructions: 'Present pass at the main entrance.', capacity: '', isActive: true, createdAt: new Date().toISOString() },
-  { id: 'cat-volunteer', name: 'Volunteers', description: 'Operational support team', color: '#16a34a', accessLevel: 'Operations Access', instructions: 'Report to the coordination desk before deployment.', capacity: '', isActive: true, createdAt: new Date().toISOString() },
-  { id: 'cat-vip', name: 'VIP', description: 'Special guests and invited dignitaries', color: '#f59e0b', accessLevel: 'Priority Access', instructions: 'Use the VIP reception point.', capacity: '', isActive: true, createdAt: new Date().toISOString() },
-  { id: 'cat-staff', name: 'Staff', description: 'Internal event staff', color: '#64748b', accessLevel: 'Staff Access', instructions: 'Carry staff identification if requested.', capacity: '', isActive: true, createdAt: new Date().toISOString() }
-];
-
-function loadStoredCategories(): LocalCategory[] {
-  try {
-    const raw = localStorage.getItem(CATEGORY_STORAGE_KEY);
-    if (!raw) return DEFAULT_CATEGORIES;
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return DEFAULT_CATEGORIES;
-    return parsed.length ? parsed : DEFAULT_CATEGORIES;
-  } catch {
-    return DEFAULT_CATEGORIES;
+  function configure(rows: string[][], start = 0, header = looksLikeHeader(rows[start] || [])) {
+    setFirstRow(start); setHasHeader(header);
+    const next = detectMapping(header ? rows[start] || [] : []);
+    if (!header) next.fullName = 0;
+    setMapping(next); setPreview(null); setResult(null); setPage(0);
   }
-}
-
-function saveStoredCategories(categories: LocalCategory[]) {
-  localStorage.setItem(CATEGORY_STORAGE_KEY, JSON.stringify(categories));
-}
-
-export default function UploadParticipants({ onConfirm, onCancel, existingCategories = [] }: UploadParticipantsProps) {
-  const [previewList, setPreviewList] = useState<RawParticipant[]>([]);
-  const [error, setError] = useState<string>('');
-  const [pasteMode, setPasteMode] = useState<boolean>(false);
-  const [rawText, setRawText] = useState<string>('');
-  const [categories, setCategories] = useState<LocalCategory[]>(loadStoredCategories);
-  const [selectedCategoryName, setSelectedCategoryName] = useState<string>(categories.find(c => c.isActive)?.name || 'Attendees');
-  const [newCategoryName, setNewCategoryName] = useState('');
-  const [newCategoryDescription, setNewCategoryDescription] = useState('');
-  const [newCategoryAccessLevel, setNewCategoryAccessLevel] = useState('General Access');
-  const [newCategoryInstructions, setNewCategoryInstructions] = useState('Present this pass at the entrance for verification.');
-  const [newCategoryCapacity, setNewCategoryCapacity] = useState('');
-  const [newCategoryColor, setNewCategoryColor] = useState('#2563eb');
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const mergedCategories = useMemo(() => {
-    const byName = new Map<string, LocalCategory>();
-    for (const item of categories) byName.set(item.name.toLowerCase(), item);
-    for (const name of existingCategories.filter(Boolean)) {
-      if (!byName.has(name.toLowerCase())) {
-        byName.set(name.toLowerCase(), { id: `cat-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, name, description: 'Existing participant category', color: '#64748b', accessLevel: 'Existing Access', instructions: '', capacity: '', isActive: true, createdAt: new Date().toISOString() });
-      }
-    }
-    return Array.from(byName.values()).filter(c => c.isActive);
-  }, [categories, existingCategories]);
-
-  const selectedCategory = mergedCategories.find(c => c.name === selectedCategoryName) || mergedCategories[0];
-
-  const applySelectedCategory = (list: RawParticipant[]) => list.map(item => ({ ...item, category: selectedCategory?.name || item.category || 'Attendees' }));
-
-  const persistCategories = (next: LocalCategory[]) => {
-    setCategories(next);
-    saveStoredCategories(next);
-  };
-
-  const handleCreateCategory = () => {
-    const name = newCategoryName.trim();
-    if (!name) {
-      setError('Enter a category name before creating it.');
-      return;
-    }
-    const exists = categories.some(c => c.name.toLowerCase() === name.toLowerCase());
-    if (exists) {
-      setSelectedCategoryName(categories.find(c => c.name.toLowerCase() === name.toLowerCase())?.name || name);
-      setError('');
-      return;
-    }
-    const created: LocalCategory = {
-      id: 'cat-' + Math.random().toString(36).substring(2, 9),
-      name,
-      description: newCategoryDescription.trim(),
-      color: newCategoryColor,
-      accessLevel: newCategoryAccessLevel.trim() || 'General Access',
-      instructions: newCategoryInstructions.trim(),
-      capacity: newCategoryCapacity.trim(),
-      isActive: true,
-      createdAt: new Date().toISOString()
-    };
-    const next = [...categories, created];
-    persistCategories(next);
-    setSelectedCategoryName(created.name);
-    setNewCategoryName('');
-    setNewCategoryDescription('');
-    setNewCategoryAccessLevel('General Access');
-    setNewCategoryInstructions('Present this pass at the entrance for verification.');
-    setNewCategoryCapacity('');
-    setNewCategoryColor('#2563eb');
-    if (previewList.length) setPreviewList(prev => prev.map(p => ({ ...p, category: created.name })));
+  async function readFile(file?: File) {
+    if (!file || busy || reading) return;
+    const version = ++readVersion.current;
+    setError(''); setPreview(null); setResult(null); setSheets([]); setReading(true);
+    try {
+      if (file.size > MAX_ROSTER_BYTES) throw new Error('Choose a file smaller than 10 MB.');
+      const extension = file.name.split('.').pop()?.toLowerCase();
+      let next: RosterSheet[];
+      if (['xlsx', 'xls', 'ods'].includes(extension || '')) next = await parseRosterWorkbook(await file.arrayBuffer());
+      else if (extension === 'pdf') {
+        const { parseRosterPdf } = await import('../roster/pdf.js');
+        next = [{ name: 'PDF text', rows: await parseRosterPdf(await file.arrayBuffer()) }];
+      } else if (['csv', 'tsv', 'txt'].includes(extension || '')) next = [{ name: 'Roster', rows: parseRosterText(await file.text()) }];
+      else throw new Error('Choose CSV, Excel (.xlsx/.xls), ODS, TSV, TXT, or a PDF with selectable text.');
+      if (version !== readVersion.current) return;
+      setSheets(next); setSourceName(file.name);
+      const index = Math.max(0, next.findIndex(sheet => sheet.rows.length));
+      setSheetIndex(index); configure(next[index].rows);
+      validateTable(next[index].rows);
+    } catch (error: any) { if (version === readVersion.current) setError(error.message || 'Could not read this file. Try exporting it as CSV.'); }
+    finally { if (version === readVersion.current) setReading(false); }
+  }
+  function readPaste() {
+    setError(''); setResult(null); setPreview(null); setSheets([]);
+    try {
+      const rows = parseRosterText(text);
+      setSheets([{ name: 'Pasted rows', rows }]); setSheetIndex(0); setSourceName('Pasted roster'); configure(rows);
+    } catch (error: any) { setError(error.message); }
+  }
+  function buildPreview() {
     setError('');
-  };
-
-  const handleCategoryChange = (name: string) => {
-    setSelectedCategoryName(name);
-    if (previewList.length) setPreviewList(prev => prev.map(p => ({ ...p, category: name })));
-  };
-
-  const parseLines = (lines: string[]) => {
-    const list: RawParticipant[] = [];
-    for (let line of lines) {
-      line = line.trim();
-      if (!line) continue;
-      if (line.includes('|')) {
-        const parts = line.split('|').map(s => s.trim());
-        list.push({ fullName: parts[0] || 'Anonymous', phone: parts[1] || '', email: parts[2] || '', organization: parts[3] || '', category: selectedCategory?.name || parts[4] || 'Attendees' });
-      } else if (line.includes('\t')) {
-        const parts = line.split('\t').map(s => s.trim());
-        list.push({ fullName: parts[0] || 'Anonymous', phone: parts[1] || '', email: parts[2] || '', organization: parts[3] || '', category: selectedCategory?.name || parts[4] || 'Attendees' });
-      } else if (line.includes(',')) {
-        const parts = line.split(',').map(s => s.trim());
-        list.push({ fullName: parts[0] || 'Anonymous', phone: parts[1] || '', email: parts[2] || '', organization: parts[3] || '', category: selectedCategory?.name || parts[4] || 'Attendees' });
-      } else {
-        list.push({ fullName: line, phone: '', email: '', organization: '', category: selectedCategory?.name || 'Attendees' });
-      }
-    }
-    return applySelectedCategory(list);
-  };
-
-  const handleExcelParse = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const data = e.target?.result;
-        const workbook = XLSX.read(data, { type: 'binary' });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rawRows: any[] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-        if (rawRows.length === 0) return setError('The uploaded Excel sheet is empty.');
-        const firstRow = rawRows[0].map((h: any) => String(h).toLowerCase().replace(/\s+/g, ''));
-        const fullNameIdx = firstRow.findIndex((h: string) => h.includes('name') || h.includes('full'));
-        const phoneIdx = firstRow.findIndex((h: string) => h.includes('phone') || h.includes('tel') || h.includes('mobile'));
-        const emailIdx = firstRow.findIndex((h: string) => h.includes('email') || h.includes('mail'));
-        const orgIdx = firstRow.findIndex((h: string) => h.includes('org') || h.includes('company') || h.includes('school'));
-        const startIdx = (fullNameIdx !== -1 || emailIdx !== -1) ? 1 : 0;
-        const parsed: RawParticipant[] = [];
-        for (let i = startIdx; i < rawRows.length; i++) {
-          const row = rawRows[i];
-          if (!row || row.length === 0) continue;
-          const fullName = String(fullNameIdx !== -1 ? row[fullNameIdx] || '' : row[0] || '').trim();
-          if (!fullName) continue;
-          parsed.push({
-            fullName,
-            phone: phoneIdx !== -1 ? String(row[phoneIdx] || '').trim() : '',
-            email: emailIdx !== -1 ? String(row[emailIdx] || '').trim() : '',
-            organization: orgIdx !== -1 ? String(row[orgIdx] || '').trim() : '',
-            category: selectedCategory?.name || 'Attendees'
-          });
-        }
-        if (!parsed.length) setError('Could not extract any participant names from Excel.');
-        else { setPreviewList(applySelectedCategory(parsed)); setError(''); }
-      } catch {
-        setError('Error reading Excel file. Please try a standard CSV or TXT file.');
-      }
-    };
-    reader.readAsBinaryString(file);
-  };
-
-  const handleCSVParse = (file: File) => {
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (results) => {
-        try {
-          const data = results.data as any[];
-          if (data.length === 0) return setError('The uploaded CSV file is empty.');
-          const parsed = data.map(row => {
-            const keys = Object.keys(row);
-            const nameKey = keys.find(k => k.toLowerCase().includes('name') || k.toLowerCase().includes('full')) || keys[0];
-            const phoneKey = keys.find(k => k.toLowerCase().includes('phone') || k.toLowerCase().includes('tel') || k.toLowerCase().includes('mobile'));
-            const emailKey = keys.find(k => k.toLowerCase().includes('email') || k.toLowerCase().includes('mail'));
-            const orgKey = keys.find(k => k.toLowerCase().includes('org') || k.toLowerCase().includes('company') || k.toLowerCase().includes('school'));
-            return { fullName: String(row[nameKey] || '').trim(), phone: phoneKey ? String(row[phoneKey] || '').trim() : '', email: emailKey ? String(row[emailKey] || '').trim() : '', organization: orgKey ? String(row[orgKey] || '').trim() : '', category: selectedCategory?.name || 'Attendees' };
-          }).filter(p => p.fullName);
-          if (!parsed.length) setError('No valid participant names found in CSV.');
-          else { setPreviewList(applySelectedCategory(parsed)); setError(''); }
-        } catch {
-          setError('Error parsing CSV headers. Check file formatting.');
-        }
-      },
-      error: () => setError('Failed to read CSV file.')
-    });
-  };
-
-  const handleTextParse = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const parsed = parseLines(String(e.target?.result || '').split('\n'));
-      if (!parsed.length) setError('No valid participant names found in text file.');
-      else { setPreviewList(parsed); setError(''); }
-    };
-    reader.readAsText(file);
-  };
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setError('');
-    const extension = file.name.split('.').pop()?.toLowerCase();
-    if (extension === 'xlsx' || extension === 'xls') handleExcelParse(file);
-    else if (extension === 'csv') handleCSVParse(file);
-    else if (extension === 'txt') handleTextParse(file);
-    else setError(`Unsupported file extension: .${extension}. We support CSV, Excel, TXT, or copy-pasting standard text.`);
-  };
-
-  const handleDragOver = (e: React.DragEvent) => e.preventDefault();
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    const file = e.dataTransfer.files?.[0];
-    if (!file) return;
-    const fakeEvent = { target: { files: [file] } } as unknown as React.ChangeEvent<HTMLInputElement>;
-    handleFileUpload(fakeEvent);
-  };
-
-  const handlePasteSubmit = () => {
-    if (!rawText.trim()) return setError('Please paste some text first.');
-    const parsed = parseLines(rawText.split('\n'));
-    if (!parsed.length) setError('Could not extract any participant names.');
-    else { setPreviewList(parsed); setError(''); }
-  };
-
-  const handleEditField = (index: number, field: keyof RawParticipant, value: string) => {
-    const updated = [...previewList];
-    updated[index] = { ...updated[index], [field]: value };
-    setPreviewList(updated);
-  };
-
-  const handleDeleteItem = (index: number) => setPreviewList(prev => prev.filter((_, idx) => idx !== index));
-  const handleConfirmUpload = () => { if (previewList.length) onConfirm(applySelectedCategory(previewList)); };
-
-  return (
-    <div className="space-y-6 w-full max-w-5xl mx-auto">
-      <div className="eventz-dashboard-panel flex flex-col md:flex-row md:items-center justify-between gap-4 p-6">
-        <div className="space-y-1 text-left">
-          <div className="flex items-center gap-2 text-[#f2a900] font-bold text-xs tracking-wider uppercase"><Sparkles size={14} /> Category-Based Roster Upload</div>
-          <h2 className="text-xl font-black text-slate-950">Upload Registered Participants</h2>
-          <p className="text-slate-500 text-xs max-w-lg leading-relaxed">Create or select a participant category first, then browse and upload the roster for that category. Every imported participant will inherit the selected category.</p>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={() => { setPasteMode(!pasteMode); setPreviewList([]); setError(''); }} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all">{pasteMode ? <FileText size={14} /> : <Clipboard size={14} />}{pasteMode ? 'Upload File instead' : 'Copy-Paste Text Mode'}</button>
-          <button onClick={onCancel} className="px-4 py-2 bg-slate-800 text-slate-300 hover:bg-slate-700 rounded-xl text-xs font-bold transition-all">Cancel</button>
-        </div>
+    try {
+      if (sheets[sheetIndex]?.truncated) throw new Error(`This worksheet exceeds the row limit. Export at most ${MAX_ROSTER_ROWS} participant rows and import again.`);
+      validateTable(table);
+      if (mapping.fullName < 0 && mapping.firstName < 0 && mapping.lastName < 0) throw new Error('Map a full-name column, or first and last name columns.');
+      const dataRows = table.slice(firstRow + (hasHeader ? 1 : 0));
+      const next = mapRoster(dataRows, mapping, defaultCategory);
+      if (!next.length) throw new Error('No participant rows follow the selected header.');
+      if (next.length > MAX_ROSTER_ROWS) throw new Error(`Import up to ${MAX_ROSTER_ROWS} people at a time.`);
+      setPreview(next); setPage(0);
+    } catch (error: any) { setError(error.message); }
+  }
+  async function confirm() {
+    if (saving.current || invalid || !importCount) return;
+    saving.current = true; setBusy(true); setError('');
+    try { setResult(await onConfirm(rows, skipDuplicates ? 'skip' : 'allow')); }
+    catch (error: any) { setError(error.message || 'Import failed. Your preview is still here; correct the issue and retry.'); }
+    finally { saving.current = false; setBusy(false); }
+  }
+  function reset() {
+    readVersion.current++; setReading(false); setSheets([]); setPreview(null); setResult(null); setError(''); setSourceName('');
+    if (fileInput.current) fileInput.current.value = '';
+  }
+  const edit = (index: number, field: keyof RosterParticipant, value: string) => setPreview(previous => previous!.map((row, i) => i === index ? { ...row, [field]: value } : row));
+  return <section className="roster-import" aria-busy={busy || reading}>
+    <div className="organizer-heading"><div><span className="organizer-eyebrow">YOUR PEOPLE, YOUR EVENT</span><h2>Bring your roster.</h2><p>Import guests from your existing lists, review their details, and generate individual QR passes.</p></div><button className="organizer-secondary" disabled={busy} onClick={onCancel}>Back to dashboard</button></div>
+    <ol className="roster-steps" aria-label="Import progress">{['Choose a source', 'Match columns', 'Review & import'].map((label, index) => <li key={label} aria-current={(preview ? 2 : sheets.length ? 1 : 0) === index ? 'step' : undefined}><b>{index + 1}</b>{label}</li>)}</ol>
+    {error && <p role="alert" className="organizer-error"><AlertCircle size={18} />{error}</p>}
+    {result ? <div className="organizer-card roster-success" role="status"><CheckCircle2 size={40} /><h3>{result.count} participants imported</h3><p>{result.count} individual passes generated. {result.skipped > 0 && `${result.skipped} duplicate rows were skipped.`} No emails were sent.</p><div className="organizer-actions"><button className="organizer-primary" onClick={onDone}>Manage passes <ArrowRight size={16} /></button><button className="organizer-secondary" onClick={reset}>Import another roster</button></div></div> : preview ? <>
+      <div className="organizer-card roster-review-summary"><div><h3>Review {rows.length} participants</h3><p>{invalid} rows need attention · {duplicateCheck.duplicates.size} possible duplicates</p><small>Duplicates match an email, a name + phone, or a name + organization when no contact details are available. Review before excluding them.</small></div><label className="roster-check"><input type="checkbox" checked={skipDuplicates} disabled={busy} onChange={e => setSkipDuplicates(e.target.checked)} />Skip duplicate rows</label></div>
+      <fieldset disabled={busy} className="roster-fieldset">
+        <div className="roster-table-wrap"><table className="roster-table"><caption>Edit any cell before importing. Categories from your source are preserved.</caption><thead><tr><th>Row</th>{participantFields.map(field => <th key={field.key}>{field.label}</th>)}<th>Review</th><th>Remove</th></tr></thead><tbody>{rows.slice(activePage * PAGE_SIZE, (activePage + 1) * PAGE_SIZE).map((row, offset) => {
+          const index = activePage * PAGE_SIZE + offset;
+          return <tr key={index} className={issues[index].length ? 'roster-invalid' : ''}><td>{index + 1}</td>{participantFields.map(field => <td key={field.key}><input aria-label={`${field.label}, row ${index + 1}`} value={row[field.key]} maxLength={fieldLimits[field.key]} onChange={e => edit(index, field.key, e.target.value)} /></td>)}<td className="roster-issue">{issues[index].join(' ') || (duplicateCheck.duplicates.has(index) ? skipDuplicates ? 'Duplicate · will skip' : 'Duplicate · will import' : 'Ready')}</td><td><button aria-label={`Remove row ${index + 1}`} onClick={() => setPreview(previous => previous!.filter((_, i) => i !== index))}><Trash2 size={16} /></button></td></tr>;
+        })}</tbody></table></div>
+        <div className="organizer-actions roster-pagination"><button className="organizer-secondary" disabled={activePage === 0} onClick={() => setPage(activePage - 1)}>Previous</button><span>Page {activePage + 1} of {lastPage + 1}</span><button className="organizer-secondary" disabled={activePage === lastPage} onClick={() => setPage(activePage + 1)}>Next</button>{invalid > 0 && <button className="organizer-secondary" onClick={() => setPage(Math.floor(issues.findIndex(row => row.length) / PAGE_SIZE))}>Show first error</button>}</div>
+      </fieldset>
+      <div className="organizer-actions"><button className="organizer-secondary" disabled={busy} onClick={() => { setPreview(null); setError(''); }}><ArrowLeft size={16} />Change mapping</button><button className="organizer-primary" disabled={busy || invalid > 0 || !importCount} onClick={confirm}>{busy ? 'Importing…' : `Import ${importCount} & generate passes`}<ArrowRight size={16} /></button></div>
+      <p className="roster-note">Imports add people to this event only. Existing passes and check-ins are preserved. You can send or print passes afterwards from Manage passes.</p>
+    </> : sheets.length ? <div className="organizer-card">
+      <div className="organizer-heading"><div><h3>Match your columns</h3><p>{sourceName}</p></div><button className="organizer-secondary" onClick={reset}>Choose another source</button></div>
+      <div className="roster-mapping-controls">
+        {sheets.length > 1 && <label>Worksheet<select aria-label="Worksheet" value={sheetIndex} onChange={e => { const index = Number(e.target.value); setSheetIndex(index); configure(sheets[index].rows); setError(''); }} >{sheets.map((sheet, index) => <option key={index} value={index}>{sheet.name}</option>)}</select></label>}
+        <label>Start at row<input aria-label="Start at row" type="number" min={1} max={Math.max(1, table.length)} value={firstRow + 1} onChange={e => configure(table, Math.max(0, Math.min(table.length - 1, Number(e.target.value) - 1)), hasHeader)} /></label>
+        <label className="roster-check"><input type="checkbox" checked={hasHeader} onChange={e => configure(table, firstRow, e.target.checked)} />This row contains column names</label>
+        <label>Default category<input aria-label="Default category" list="roster-categories" value={defaultCategory} maxLength={100} onChange={e => setDefaultCategory(e.target.value)} /><datalist id="roster-categories">{categoryOptions.map(category => <option key={category} value={category} />)}</datalist><small>Used only when the source category is blank.</small></label>
       </div>
-
-      <div className="grid lg:grid-cols-3 gap-4 text-left">
-        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 space-y-4 lg:col-span-1">
-          <div className="flex items-center gap-2 text-slate-900"><Tags size={16} /><h3 className="font-black text-sm">1. Select Category</h3></div>
-          <select value={selectedCategoryName} onChange={(e) => handleCategoryChange(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-1 focus:ring-slate-900">
-            {mergedCategories.map(cat => <option key={cat.id} value={cat.name}>{cat.name}</option>)}
-          </select>
-          {selectedCategory && <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-xs space-y-2"><div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full" style={{ backgroundColor: selectedCategory.color }}></span><span className="font-black text-slate-800">{selectedCategory.name}</span></div><p className="text-slate-500 leading-relaxed">{selectedCategory.description || 'No description yet.'}</p><div className="grid grid-cols-2 gap-2 text-[10px]"><span className="bg-white border border-slate-100 rounded-lg p-2"><b>Access:</b><br />{selectedCategory.accessLevel || 'General'}</span><span className="bg-white border border-slate-100 rounded-lg p-2"><b>Capacity:</b><br />{selectedCategory.capacity || 'Open'}</span></div>{selectedCategory.instructions && <p className="text-[10px] text-slate-500"><b>Instruction:</b> {selectedCategory.instructions}</p>}</div>}
-        </div>
-
-        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 space-y-4 lg:col-span-2">
-          <div className="flex items-center gap-2 text-slate-900"><PlusCircle size={16} /><h3 className="font-black text-sm">Create New Category</h3></div>
-          <div className="grid md:grid-cols-2 gap-3 text-xs">
-            <input value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder="Category name, e.g. Volunteers" className="p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold focus:outline-none focus:ring-1 focus:ring-slate-900" />
-            <input value={newCategoryAccessLevel} onChange={(e) => setNewCategoryAccessLevel(e.target.value)} placeholder="Access level" className="p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-slate-900" />
-            <input value={newCategoryCapacity} onChange={(e) => setNewCategoryCapacity(e.target.value)} placeholder="Capacity / limit optional" className="p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-slate-900" />
-            <input type="color" value={newCategoryColor} onChange={(e) => setNewCategoryColor(e.target.value)} className="h-[42px] p-1 bg-slate-50 border border-slate-200 rounded-xl" />
-            <input value={newCategoryDescription} onChange={(e) => setNewCategoryDescription(e.target.value)} placeholder="Description / role specification" className="md:col-span-2 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-slate-900" />
-            <textarea value={newCategoryInstructions} onChange={(e) => setNewCategoryInstructions(e.target.value)} placeholder="Check-in instructions for this category" rows={2} className="md:col-span-2 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-slate-900 resize-none" />
-          </div>
-          <button onClick={handleCreateCategory} className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow flex items-center gap-1.5"><PlusCircle size={14} /> Save Category and Use It</button>
-        </div>
-      </div>
-
-      {error && <div className="bg-rose-50 text-rose-800 border border-rose-200/60 p-4 rounded-2xl flex gap-3 text-xs text-left"><AlertCircle className="text-rose-600 shrink-0 mt-0.5" size={16} /><div><p className="font-bold">Attention</p><p>{error}</p></div></div>}
-
-      {previewList.length === 0 ? (
-        <div className="space-y-4">
-          {!pasteMode ? (
-            <div onDragOver={handleDragOver} onDrop={handleDrop} onClick={() => fileInputRef.current?.click()} className="border-2 border-dashed border-slate-200 hover:border-slate-400 bg-white hover:bg-slate-50/50 py-16 px-6 rounded-3xl text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-4 group">
-              <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".csv, .xlsx, .xls, .txt" className="hidden" />
-              <div className="w-14 h-14 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-500 border border-slate-100 group-hover:scale-105 transition-all"><Upload size={24} className="text-slate-600" /></div>
-              <div className="space-y-1"><p className="font-extrabold text-slate-800 text-sm">2. Browse roster for {selectedCategoryName}</p><p className="text-slate-400 text-xs">Drag and drop or click to upload CSV, Excel, or TXT. Imported rows will be assigned to <b>{selectedCategoryName}</b>.</p></div>
-              <div className="flex gap-4 pt-4 text-[10px] font-bold text-slate-400 tracking-wider uppercase border-t border-slate-100 w-full max-w-sm justify-center"><span>Excel</span><span>•</span><span>CSV</span><span>•</span><span>TXT</span></div>
-            </div>
-          ) : (
-            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-4 text-left">
-              <div className="space-y-1"><label className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">Paste roster for {selectedCategoryName}</label><p className="text-slate-400 text-[11px] leading-relaxed">One name per line, or columns: Full Name | Phone | Email | Organization. Category is applied automatically from the selected category.</p></div>
-              <textarea value={rawText} onChange={(e) => setRawText(e.target.value)} placeholder="John Doe&#10;Mary Claire | +2376XXXXXXX | mary@example.com | ETSNTECH" className="w-full h-64 p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-mono focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900 transition-all focus:border-slate-900" />
-              <div className="flex justify-end gap-2"><button onClick={() => setRawText('')} className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-700">Clear Box</button><button onClick={handlePasteSubmit} disabled={!rawText.trim()} className="bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white font-bold px-6 py-2.5 rounded-xl text-xs transition-all flex items-center gap-1.5 shadow"><Clipboard size={14} /> Analyze and Import</button></div>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm flex flex-col text-left">
-          <div className="p-4 bg-slate-50/80 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-            <div className="space-y-0.5"><span className="text-[10px] font-bold text-emerald-600 uppercase flex items-center gap-1"><CheckCircle2 size={13} /> Extraction Completed</span><p className="font-bold text-slate-800 text-sm">Found <span className="text-slate-900 font-extrabold">{previewList.length}</span> parsed participants for <span className="text-emerald-700">{selectedCategoryName}</span></p></div>
-            <div className="flex gap-2"><button onClick={() => setPreviewList([])} className="px-3.5 py-1.5 border border-slate-200 hover:bg-slate-50 rounded-lg text-xs font-bold text-slate-600 transition-all">Reset Upload</button><button onClick={handleConfirmUpload} className="px-5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow flex items-center gap-1.5 transition-all"><Users size={13} /> Confirm & Generate Passes</button></div>
-          </div>
-          <div className="overflow-x-auto max-h-[450px]"><table className="w-full text-xs text-left"><thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-semibold border-b border-slate-100"><tr><th className="py-3 px-4">#</th><th className="py-3 px-4">Full Name</th><th className="py-3 px-4">Phone</th><th className="py-3 px-4">Email</th><th className="py-3 px-4">Organization</th><th className="py-3 px-4">Category</th><th className="py-3 px-4 text-center">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{previewList.map((item, idx) => (<tr key={idx} className="hover:bg-slate-50/40 transition-colors"><td className="py-2.5 px-4 font-mono text-slate-400 font-bold">{idx + 1}</td><td className="py-2 px-3"><input type="text" value={item.fullName} onChange={(e) => handleEditField(idx, 'fullName', e.target.value)} className="w-full px-2 py-1 bg-transparent border-b border-b-transparent focus:border-slate-800 focus:outline-none font-semibold text-slate-800" /></td><td className="py-2 px-3"><input type="text" value={item.phone} onChange={(e) => handleEditField(idx, 'phone', e.target.value)} className="w-full px-2 py-1 bg-transparent border-b border-b-transparent focus:border-slate-800 focus:outline-none text-slate-600 font-mono" /></td><td className="py-2 px-3"><input type="email" value={item.email} onChange={(e) => handleEditField(idx, 'email', e.target.value)} className="w-full px-2 py-1 bg-transparent border-b border-b-transparent focus:border-slate-800 focus:outline-none text-slate-600" /></td><td className="py-2 px-3"><input type="text" value={item.organization} onChange={(e) => handleEditField(idx, 'organization', e.target.value)} className="w-full px-2 py-1 bg-transparent border-b border-b-transparent focus:border-slate-800 focus:outline-none text-slate-600" /></td><td className="py-2 px-3"><select value={item.category} onChange={(e) => handleEditField(idx, 'category', e.target.value)} className="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-700">{mergedCategories.map(cat => <option key={cat.id} value={cat.name}>{cat.name}</option>)}</select></td><td className="py-2 px-4 text-center"><button onClick={() => handleDeleteItem(idx)} className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100 transition-all" title="Delete Name"><Trash2 size={14} /></button></td></tr>))}</tbody></table></div>
-          <div className="p-3 bg-slate-50 border-t border-slate-100 text-[10px] text-slate-400 flex justify-between items-center"><span>All rows are category-aware and can still be edited before confirmation.</span><span>Category: {selectedCategoryName}</span></div>
-        </div>
-      )}
-    </div>
-  );
+      <div className="roster-mapping">{rosterFields.map(field => <label key={field.key}>{field.label}<select aria-label={`Map ${field.label}`} value={mapping[field.key]} onChange={e => setMapping(previous => ({ ...previous, [field.key]: Number(e.target.value) }))}><option value={-1}>Not mapped</option>{headers.map((header, index) => <option key={index} value={index}>{index + 1}. {header}</option>)}</select></label>)}</div>
+      <p className="roster-note">Map Full name, or combine First name and Last name. Ignore timestamps and unrelated form questions. For PDFs with a title, adjust the starting row to the table header.</p>
+      <div className="roster-table-wrap"><table className="roster-table"><caption>Source preview · first 5 rows after your selected header</caption><thead><tr>{headers.map((header, index) => <th key={index}>{header}</th>)}</tr></thead><tbody>{table.slice(firstRow + (hasHeader ? 1 : 0), firstRow + (hasHeader ? 1 : 0) + 5).map((row, index) => <tr key={index}>{headers.map((_, column) => <td key={column}>{row[column] || '—'}</td>)}</tr>)}</tbody></table></div>
+      <button className="organizer-primary" onClick={buildPreview}>Preview roster <ArrowRight size={16} /></button>
+    </div> : <div className="organizer-card">
+      <div className="roster-source-tabs" role="group" aria-label="Roster source">{([{ id: 'file', label: 'Upload a file', Icon: Upload }, { id: 'paste', label: 'Paste rows', Icon: Clipboard }, { id: 'google', label: 'Google Forms / Sheets', Icon: FileSpreadsheet }] as const).map(({ id, label, Icon }) => <button key={id} aria-pressed={mode === id} disabled={reading} onClick={() => { setMode(id); setError(''); }}><Icon size={18} />{label}</button>)}</div>
+      {mode === 'google' && <div className="roster-source-help"><h3>Bring your form responses into EVENTZ</h3><ol><li>In Google Forms, open Responses and download the responses as CSV.</li><li>Or open the linked Google Sheet and choose File → Download → CSV or Microsoft Excel.</li><li>Upload the export below. You can also paste copied cells using Paste rows.</li></ol><p>Import a new export whenever you need to add responses. Duplicate checks help you avoid issuing another pass to the same person.</p></div>}
+      {mode === 'paste' ? <div className="roster-paste"><label htmlFor="roster-text">Paste rows from a spreadsheet, form export, or text list</label><textarea id="roster-text" rows={9} value={text} onChange={e => setText(e.target.value)} placeholder={'Full name\tEmail\tPhone\tOrganization\tCategory\nAda Example\tada@example.com\t+237600000000\tCommunity\tVIP'} /><p className="roster-note">One name per line also works. Commas, semicolons, tabs, and | separators are supported.</p><button className="organizer-primary" disabled={!text.trim()} onClick={readPaste}>Read pasted rows <ArrowRight size={16} /></button></div> : <div className="roster-drop" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void readFile(e.dataTransfer.files[0]); }}>
+        <FileText size={36} /><h3>{reading ? 'Reading your roster…' : 'Drop your roster here'}</h3><p>CSV, Excel, ODS, TSV, TXT, or PDF · up to 10 MB and {MAX_ROSTER_ROWS.toLocaleString()} people per import</p><button className="organizer-primary" disabled={reading} onClick={() => fileInput.current?.click()}>Choose file</button><input aria-label="Upload roster file" type="file" ref={fileInput} hidden accept=".csv,.xlsx,.xls,.ods,.tsv,.txt,.pdf" onChange={e => void readFile(e.target.files?.[0])} /><p className="roster-note">Choose a file from your device or a connected drive. PDF text must be selectable; scanned pages need an OCR/text export first.</p>
+      </div>}
+      <a className="roster-template" download="eventz-roster-template.csv" href={'data:text/csv;charset=utf-8,' + encodeURIComponent('Full name,Email,Phone,Organization,Category\r\nAda Example,ada@example.com,+237600000000,Community,VIP\r\n')}><Download size={16} />Download CSV template</a>
+    </div>}
+  </section>;
 }

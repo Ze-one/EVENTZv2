@@ -170,7 +170,8 @@ export function eventInput(body: any, previous?: EventDetails) {
       400,
       "Add a date, start time, description, and location before publishing.",
     );
-  if (publicationStatus === "published" && eventDate < today())
+  if (publicationStatus === "published" && eventDate < today() &&
+    (previous?.publicationStatus !== "published" || previous.eventDate !== eventDate))
     fail(400, "Choose today or a future date before publishing.");
   const capacity =
     input.eventCapacity == null || input.eventCapacity === ""
